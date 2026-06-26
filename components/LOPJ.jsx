@@ -1,312 +1,342 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 
-const LEXIQUE_BASE = [
+// ─── DESIGN TOKENS ────────────────────────────────────────────────────────────
+const C={bg:"#0f1419",surface:"#1a2332",border:"#2d3f55",gold:"#c8a84b",text:"#e2e8f0",muted:"#94a3b8",dim:"#64748b",green:"#22c55e",warn:"#f59e0b",red:"#ef4444",blue:"#60a5fa",purple:"#a78bfa"};
+const S={
+  app:{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:"'Segoe UI',system-ui,sans-serif",display:"flex",flexDirection:"column"},
+  header:{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"10px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100},
+  hLeft:{display:"flex",alignItems:"center",gap:10},
+  nav:{display:"flex",gap:2,flexWrap:"wrap"},
+  navBtn:{background:"transparent",border:"none",cursor:"pointer",fontSize:13,padding:"6px 10px",borderRadius:8,color:C.muted,fontWeight:600},
+  navActive:{background:C.border,color:C.gold},
+  main:{flex:1,maxWidth:860,margin:"0 auto",width:"100%",paddingBottom:32},
+  pad:{padding:"24px 20px"},
+  pageTitle:{fontSize:22,fontWeight:700,marginBottom:20,color:C.gold},
+  hero:{textAlign:"center",padding:"28px 20px",background:C.surface,borderRadius:16,border:`1px solid ${C.border}`,marginBottom:20},
+  row3:{display:"flex",gap:12,marginBottom:20,flexWrap:"wrap"},
+  row4:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16},
+  statCard:{flex:"1 1 80px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 10px",textAlign:"center"},
+  grid2:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20},
+  feat:{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:14},
+  card:{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:18,marginBottom:10},
+  secLabel:{fontSize:11,fontWeight:800,color:C.gold,letterSpacing:1.5,marginBottom:10},
+  secTitle:{fontSize:15,fontWeight:700,color:C.gold,marginBottom:10},
+  badge:{fontSize:10,fontWeight:700,color:C.gold,background:`${C.gold}25`,padding:"2px 6px",borderRadius:4,flexShrink:0},
+  hItem:{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:6},
+  toggles:{display:"flex",flexWrap:"wrap",gap:6},
+  tog:{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:"7px 12px",cursor:"pointer",fontSize:13},
+  togA:{background:C.gold,borderColor:C.gold,color:"#000",fontWeight:700},
+  sel:{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:"9px 12px",fontSize:13,outline:"none"},
+  btnP:{background:C.gold,color:"#000",border:"none",borderRadius:8,padding:"10px 20px",fontSize:14,fontWeight:700,cursor:"pointer"},
+  btnS:{background:C.surface,color:C.text,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 20px",fontSize:14,cursor:"pointer"},
+  textarea:{width:"100%",background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:12,fontSize:14,lineHeight:1.6,resize:"vertical",outline:"none",boxSizing:"border-box",fontFamily:"inherit"},
+  input:{flex:1,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:"10px 14px",fontSize:14,outline:"none",fontFamily:"inherit"},
+  inputFull:{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:"10px 14px",fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box"},
+  chip:{background:C.surface,border:`1px solid ${C.border}`,borderRadius:20,color:C.muted,padding:"4px 10px",fontSize:12,cursor:"pointer"},
+};
+function Block({label,children}){return <div><label style={{display:"block",fontSize:13,fontWeight:700,color:C.gold,marginBottom:8}}>{label}</label>{children}</div>;}
+function CorrectionDisplay({text}){
+  if(!text) return null;
+  return <div>{text.split("\n").map((line,i)=>{
+    const isSection=/^[🎯✅🔍📖⚖️🏛️💡📝🔴🟡🟢]/.test(line);
+    if(isSection) return <p key={i} style={{fontWeight:700,color:C.gold,margin:"12px 0 4px",fontSize:14}}>{line}</p>;
+    if(!line) return <br key={i}/>;
+    return <p key={i} style={{fontSize:13,lineHeight:1.8,color:C.text,margin:"3px 0"}}>{line}</p>;
+  })}</div>;
+}
+
+// ─── LEXIQUE GÉNÉRAL ─────────────────────────────────────────────────────────
+const LEXIQUE_GENERAL=[
   {terme:"Acquittement",src:"Général",def:"Décision par laquelle une juridiction répressive déclare un accusé non coupable des faits qui lui sont reprochés. L'acquittement est prononcé lorsque la preuve de la culpabilité n'est pas rapportée au-delà de tout doute raisonnable (in dubio pro reo)."},
   {terme:"Action publique",src:"Général",def:"Action en justice exercée au nom de la société par le Ministère Public devant les juridictions répressives, en cas d'infraction à la loi pénale. Elle vise à réprimer l'atteinte à l'ordre social par le prononcé d'une peine."},
   {terme:"Action civile",src:"Général",def:"Action exercée par la victime d'une infraction pour obtenir réparation du préjudice subi. Elle peut être exercée devant les juridictions civiles ou jointe à l'action publique devant les juridictions pénales."},
   {terme:"Alibi",src:"Général",def:"Moyen de défense par lequel un accusé prouve qu'il se trouvait ailleurs que sur les lieux de l'infraction au moment de sa commission."},
   {terme:"Amnistie",src:"Général",def:"Mesure législative effaçant certaines infractions et annulant rétroactivement les condamnations prononcées. Elle éteint l'action publique et efface les peines prononcées."},
   {terme:"Appel",src:"Général",def:"Voie de recours ordinaire permettant à une partie de soumettre une décision de première instance à l'examen d'une juridiction supérieure (Cour d'Appel) pour qu'elle la réforme ou la confirme."},
-  {terme:"Auteur de l'infraction",src:"Général",def:"Personne qui commet personnellement les faits constitutifs de l'infraction ou qui tente de les commettre. Se distingue du complice qui participe à l'infraction sans en être l'auteur principal."},
+  {terme:"Auteur de l'infraction",src:"Général",def:"Personne qui commet personnellement les faits constitutifs de l'infraction. Se distingue du complice qui participe à l'infraction sans en être l'auteur principal."},
   {terme:"Aveu",src:"Général",def:"Déclaration par laquelle une personne reconnaît avoir commis une infraction. L'aveu est un élément de preuve mais ne dispense pas le juge de rechercher d'autres preuves."},
   {terme:"Casier judiciaire",src:"Général",def:"Registre officiel où sont inscrites les condamnations pénales prononcées contre une personne. Il comporte trois bulletins : le bulletin n°1 (intégral), le bulletin n°2 (délivré aux administrations), le bulletin n°3 (délivré à l'intéressé)."},
-  {terme:"Charge de la preuve",src:"Général",def:"Obligation pour l'accusation de démontrer la culpabilité de l'accusé. En droit pénal, la charge de la preuve incombe au Ministère Public en vertu de la présomption d'innocence."}
+  {terme:"Charge de la preuve",src:"Général",def:"Obligation pour l'accusation de démontrer la culpabilité de l'accusé. En droit pénal, la charge de la preuve incombe au Ministère Public en vertu de la présomption d'innocence."},
+  {terme:"Circonstances aggravantes",src:"Général",def:"Éléments de fait ou de droit qui alourdissent la peine normalement applicable à une infraction. Elles peuvent être générales (récidive) ou spéciales à certaines infractions (préméditation pour le meurtre)."},
+  {terme:"Circonstances atténuantes",src:"Général",def:"Éléments qui permettent au juge de réduire la peine en dessous du minimum légal. Elles tiennent compte de la personnalité du délinquant, de son comportement avant et après les faits."},
+  {terme:"Classement sans suite",src:"Général",def:"Décision du Procureur de la République de ne pas engager de poursuites pénales, en raison de l'insuffisance des charges, de l'identité inconnue de l'auteur, de la prescription ou de l'inopportunité des poursuites."},
+  {terme:"Complicité",src:"Général",def:"Participation à la commission d'une infraction sans en être l'auteur principal. Le complice peut agir par aide, assistance, fourniture de moyens ou instigation. Il encourt en principe la même peine que l'auteur principal."},
+  {terme:"Concours d'infractions",src:"Général",def:"Situation dans laquelle une même personne est l'auteur de plusieurs infractions non encore jugées définitivement. On distingue le concours réel (actes distincts) et le concours idéal (un seul acte constituant plusieurs infractions)."},
+  {terme:"Condamnation",src:"Général",def:"Décision par laquelle une juridiction répressive déclare une personne coupable d'une infraction et lui inflige une peine."},
+  {terme:"Contumace",src:"Général",def:"Situation d'un accusé qui, ayant connaissance des poursuites dirigées contre lui, refuse de se présenter devant la juridiction de jugement. Un jugement peut être rendu en son absence."},
+  {terme:"Corps du délit",src:"Général",def:"Ensemble des preuves matérielles de la commission d'une infraction, notamment les objets ayant servi à la commettre ou en constituant le produit."},
+  {terme:"Cour d'Appel",src:"Général",def:"Juridiction du second degré qui examine les appels formés contre les décisions rendues en première instance. Elle peut confirmer, infirmer ou réformer la décision attaquée."},
+  {terme:"Cour Suprême",src:"Général",def:"Plus haute juridiction de l'ordre judiciaire au Cameroun. Elle contrôle la légalité des décisions rendues par les juridictions inférieures sans rejuger les faits. Elle peut casser une décision et renvoyer l'affaire devant une autre juridiction."},
+  {terme:"Crime",src:"Général",def:"Infraction la plus grave selon la classification tripartite. Les crimes sont punis de la peine de mort, de la réclusion criminelle ou d'une peine d'emprisonnement supérieure à 10 ans."},
+  {terme:"Délit",src:"Général",def:"Infraction intermédiaire entre la contravention et le crime. Les délits sont punis d'un emprisonnement de 11 jours à 10 ans et/ou d'une amende."},
+  {terme:"Contravention",src:"Général",def:"Infraction la moins grave de la classification tripartite. Les contraventions sont punies de peines contraventionnelles légères (emprisonnement de 1 à 10 jours et/ou amende réduite)."},
+  {terme:"Détention provisoire",src:"Général",def:"Mesure privative de liberté prononcée avant jugement par le juge compétent à l'encontre d'un inculpé, pour les besoins de l'instruction ou pour des raisons de sécurité publique. Sa durée est strictement encadrée par la loi."},
+  {terme:"Dol général",src:"Général",def:"Intention coupable générale consistant pour l'auteur d'un acte à connaître et vouloir l'acte interdit par la loi pénale. Synonyme de mauvaise foi."},
+  {terme:"Dol spécial",src:"Général",def:"Intention coupable particulière exigée pour certaines infractions, consistant à poursuivre un but spécifique. Ex: pour le meurtre, le dol spécial est l'intention de donner la mort."},
+  {terme:"Droits de la défense",src:"Général",def:"Ensemble des garanties procédurales reconnues à toute personne mise en cause : droit à un avocat, droit d'être informé des charges, droit de se taire, droit à un procès équitable."},
+  {terme:"Éléments constitutifs de l'infraction",src:"Général",def:"Trois éléments cumulatifs nécessaires à la qualification d'une infraction : l'élément légal (texte d'incrimination), l'élément matériel (acte ou omission) et l'élément moral (intention ou faute)."},
+  {terme:"Élément légal",src:"Général",def:"Texte de loi ou de règlement qui prévoit et punit le comportement infractionnel. C'est le fondement du principe de légalité des délits et des peines : nullum crimen, nulla poena sine lege."},
+  {terme:"Élément matériel",src:"Général",def:"Acte ou comportement extérieur constitutif de l'infraction. Il peut s'agir d'un acte positif (commettre) ou d'une omission (ne pas secourir), d'un résultat ou d'une simple mise en danger."},
+  {terme:"Élément moral",src:"Général",def:"Aspect psychologique de l'infraction : intention (dol) pour les infractions intentionnelles, ou faute d'imprudence/négligence pour les infractions non intentionnelles."},
+  {terme:"Enquête de flagrance",src:"Général",def:"Enquête menée par la police judiciaire immédiatement après la découverte d'une infraction en cours de commission ou venant d'être commise. Elle permet des mesures coercitives importantes sans autorisation préalable du parquet."},
+  {terme:"Enquête préliminaire",src:"Général",def:"Enquête menée par la police judiciaire avant toute saisine d'un juge, soit spontanément, soit sur instructions du Procureur. Les mesures coercitives y sont plus limitées qu'en flagrance."},
+  {terme:"Extradition",src:"Général",def:"Procédure par laquelle un État remet à un autre État une personne se trouvant sur son territoire et réclamée par ce dernier pour y être jugée ou pour y purger une peine."},
+  {terme:"Faits justificatifs",src:"Général",def:"Circonstances qui effacent le caractère illicite d'un acte normalement constitutif d'infraction : la légitime défense, l'ordre de la loi, la permission de l'autorité, l'état de nécessité."},
+  {terme:"Flagrant délit",src:"Général",def:"Infraction qui se commet actuellement ou qui vient de se commettre. Il y a également flagrant délit lorsque la personne est poursuivie par la clameur publique ou trouvée en possession d'objets faisant présumer sa participation à une infraction."},
+  {terme:"Garde à vue",src:"Général",def:"Mesure privative de liberté de courte durée permettant à un OPJ de retenir une personne à sa disposition pour les besoins d'une enquête. Sa durée maximale est fixée par la loi et peut être prorogée par le procureur."},
+  {terme:"Grâce présidentielle",src:"Général",def:"Acte du Président de la République qui remet, en tout ou partie, la peine à laquelle une personne a été condamnée, sans effacer la condamnation ni rétablir l'honorabilité du condamné."},
+  {terme:"Immunité",src:"Général",def:"Privilège accordé à certaines personnes (diplomates, parlementaires) les soustrayant aux poursuites pénales ordinaires pour certains actes accomplis dans l'exercice de leurs fonctions."},
+  {terme:"Imprescriptibilité",src:"Général",def:"Caractère de certaines infractions graves (crimes contre l'humanité, génocide) pour lesquelles le délai de prescription ne court pas et qui peuvent être poursuivies indéfiniment."},
+  {terme:"Inculpé",src:"Général",def:"Personne contre laquelle le Juge d'Instruction a retenu des charges suffisantes justifiant l'ouverture d'une information judiciaire. L'inculpé devient prévenu lorsqu'il est renvoyé devant le tribunal."},
+  {terme:"In dubio pro reo",src:"Général",def:"Principe selon lequel le doute profite à l'accusé. En présence d'un doute raisonnable sur la culpabilité, le juge doit prononcer l'acquittement ou la relaxe."},
+  {terme:"Infraction",src:"Général",def:"Acte ou comportement interdit par la loi pénale et sanctionné par une peine. Les infractions se classent en crimes, délits et contraventions selon leur gravité."},
+  {terme:"Instruction préparatoire",src:"Général",def:"Phase de la procédure pénale conduite par le Juge d'Instruction pour rassembler les preuves, entendre les parties et déterminer si l'affaire doit être renvoyée en jugement."},
+  {terme:"Irresponsabilité pénale",src:"Général",def:"Absence de responsabilité pénale en raison d'une cause d'irresponsabilité : trouble mental, contrainte, minorité d'âge, erreur de droit, ordre de la loi."},
+  {terme:"Juge d'instruction",src:"Général",def:"Magistrat du siège chargé de conduire l'instruction préparatoire dans les affaires complexes ou graves. Il a des pouvoirs d'investigation étendus : auditions, perquisitions, expertises, mandats."},
+  {terme:"Légalité des délits et des peines",src:"Général",def:"Principe fondamental du droit pénal (nullum crimen, nulla poena sine lege) selon lequel une infraction et sa peine doivent être prévues par un texte légal préalable à la commission des faits."},
+  {terme:"Légitime défense",src:"Général",def:"Fait justificatif permettant d'échapper à la responsabilité pénale lorsqu'on a accompli un acte normalement infractionnel pour repousser une atteinte injuste actuelle, proportionnée à la menace."},
+  {terme:"Liberté provisoire",src:"Général",def:"Mesure permettant à un inculpé ou accusé en détention provisoire d'être remis en liberté avant jugement, sous conditions ou sans conditions (caution, contrôle judiciaire)."},
+  {terme:"Mandat d'amener",src:"Général",def:"Ordre décerné par un magistrat aux officiers de police judiciaire de conduire immédiatement devant lui la personne désignée dans le mandat, pour être entendue."},
+  {terme:"Mandat d'arrêt",src:"Général",def:"Ordre décerné par un magistrat aux officiers de police judiciaire de rechercher une personne et de la conduire immédiatement devant lui pour être placée en détention provisoire."},
+  {terme:"Mandat de comparution",src:"Général",def:"Acte par lequel un magistrat met une personne en demeure de se présenter devant lui à une date et heure fixées."},
+  {terme:"Ministère Public (Parquet)",src:"Général",def:"Institution représentant la société dans les procédures pénales. Il est chargé d'exercer l'action publique, de requérir l'application de la loi et de veiller à l'exécution des décisions judiciaires."},
+  {terme:"Non bis in idem",src:"Général",def:"Principe interdisant qu'une même personne soit poursuivie ou condamnée deux fois pour les mêmes faits. Une fois jugé définitivement, l'autorité de la chose jugée s'oppose à toute nouvelle poursuite."},
+  {terme:"Non-lieu",src:"Général",def:"Décision du Juge d'Instruction de ne pas renvoyer une affaire en jugement, faute de charges suffisantes, de preuves, ou en raison d'une cause d'irresponsabilité pénale."},
+  {terme:"Nullité de procédure",src:"Général",def:"Sanction frappant un acte de procédure pénale accompli irrégulièrement. La nullité peut être absolue (vice grave portant atteinte aux droits fondamentaux) ou relative (vice moins grave)."},
+  {terme:"Officier de Police Judiciaire (OPJ)",src:"Général",def:"Fonctionnaire habilité par la loi à constater les infractions, à en rassembler les preuves et à en rechercher les auteurs. Il agit sous l'autorité du Procureur de la République et du Juge d'Instruction."},
+  {terme:"Ordonnance de renvoi",src:"Général",def:"Décision du Juge d'Instruction renvoyant une affaire devant la juridiction de jugement compétente après instruction. Elle clôture l'instruction préparatoire."},
+  {terme:"Partie civile",src:"Général",def:"Victime d'une infraction qui se constitue partie au procès pénal pour demander réparation du préjudice subi. Elle peut se constituer partie civile devant le Juge d'Instruction ou à l'audience."},
+  {terme:"Perquisition",src:"Général",def:"Acte d'investigation consistant pour un OPJ ou un juge à rechercher des preuves au domicile d'une personne. Elle nécessite généralement une autorisation judiciaire ou le consentement de l'occupant."},
+  {terme:"Plainte",src:"Général",def:"Déclaration par laquelle une victime informe les autorités judiciaires ou policières d'une infraction dont elle a été victime, en demandant que son auteur soit poursuivi."},
+  {terme:"Pourvoi en cassation",src:"Général",def:"Recours formé devant la Cour Suprême contre une décision de justice rendue en dernier ressort, pour violation de la loi ou erreur de droit. La Cour Suprême ne rejuge pas les faits."},
+  {terme:"Présomption d'innocence",src:"Général",def:"Principe fondamental selon lequel toute personne accusée d'une infraction est présumée innocente jusqu'à ce que sa culpabilité ait été légalement établie par une décision judiciaire définitive."},
+  {terme:"Prévenu",src:"Général",def:"Personne renvoyée devant un tribunal correctionnel ou de police pour répondre d'un délit ou d'une contravention, et dont la culpabilité n'est pas encore établie."},
+  {terme:"Prescription de l'action publique",src:"Général",def:"Délai au-delà duquel l'action publique ne peut plus être exercée. Passé ce délai, les poursuites s'éteignent. Les délais varient selon la gravité de l'infraction (crimes, délits, contraventions)."},
+  {terme:"Procureur de la République",src:"Général",def:"Chef du Ministère Public auprès du tribunal de première instance. Il dirige la police judiciaire, décide des poursuites, représente la société à l'audience et requiert l'application de la loi."},
+  {terme:"Récidive",src:"Général",def:"État d'une personne qui commet une nouvelle infraction après avoir été condamnée définitivement pour une infraction antérieure. La récidive est une circonstance aggravante entraînant un alourdissement de la peine."},
+  {terme:"Réhabilitation",src:"Général",def:"Mesure effaçant une condamnation du casier judiciaire et restituant au condamné ses droits civiques, civils et familiaux perdus par suite de la condamnation."},
+  {terme:"Relaxe",src:"Général",def:"Décision par laquelle un tribunal correctionnel ou de police déclare un prévenu non coupable des faits qui lui sont reprochés. Équivalent de l'acquittement en matière criminelle."},
+  {terme:"Réquisitoire",src:"Général",def:"Acte par lequel le Ministère Public expose et soutient les charges retenues contre un accusé et requiert l'application d'une peine. Il peut aussi désigner l'acte introductif d'instance ouvrant une instruction judiciaire."},
+  {terme:"Sursis",src:"Général",def:"Modalité d'exécution de la peine permettant d'en suspendre l'exécution pendant un délai probatoire. Si le condamné ne commet pas de nouvelle infraction pendant ce délai, la peine est réputée non avenue."},
+  {terme:"Suspect",src:"Général",def:"Personne contre laquelle il existe des renseignements ou indices susceptibles d'établir qu'elle a pu commettre une infraction ou y participer, sans qu'elle ait encore été inculpée."},
+  {terme:"Syllogisme juridique",src:"Général",def:"Méthode de raisonnement juridique en trois temps : 1) LA RÈGLE DE DROIT (majeure) : l'article applicable; 2) APPLICATION AU CAS D'ESPÈCE (mineure) : les faits analysés à la lumière de la règle; 3) CONCLUSION : la qualification et la sanction."},
+  {terme:"Témoin",src:"Général",def:"Personne qui a connaissance de faits relatifs à une infraction et qui est appelée à les déposer devant les autorités judiciaires. Le témoin est tenu de comparaître et de dire la vérité sous peine de sanctions."},
+  {terme:"Tentative",src:"Général",def:"Commencement d'exécution d'une infraction qui n'a pas atteint son terme en raison de circonstances indépendantes de la volonté de son auteur. La tentative de crime est toujours punissable; celle de délit l'est si la loi le prévoit expressément."},
+  {terme:"Vice de procédure",src:"Général",def:"Irrégularité affectant un acte de procédure pénale, pouvant entraîner sa nullité si elle a causé un grief à l'une des parties."},
+  {terme:"Voies de recours",src:"Général",def:"Moyens légaux permettant à une partie de contester une décision judiciaire : opposition (jugement par défaut), appel (premier degré), pourvoi en cassation (légalité), révision (faits nouveaux)."},
+  {terme:"Coauteur",src:"CP Art.96",def:"Est coauteur, celui qui participe avec autrui et en accord avec lui à la commission d'une infraction. Le coauteur est traité comme l'auteur principal et encourt les mêmes peines."},
+  {terme:"Conspiration",src:"CP Art.95",def:"Il y a conspiration dès que la résolution de commettre une infraction est concertée et arrêtée entre deux ou plusieurs personnes. Il ne peut y avoir conspiration entre mari et femme. La conspiration en vue de commettre un crime ou délit est considérée comme le crime ou le délit lui-même si elle n'a pas été suspendue."},
+  {terme:"Tentative (CP)",src:"CP Art.94",def:"Toute tentative manifestée par un acte tendant à l'exécution d'un crime ou d'un délit et impliquant sans équivoque l'intention irrévocable de son auteur, si elle n'a pas été suspendue ou si elle n'a manqué son effet que par des circonstances indépendantes de la volonté de son auteur, est considérée comme le crime ou le délit lui-même."},
+  {terme:"Classification des infractions",src:"CP Art.21",def:"Les infractions sont classées en crimes, délits et contraventions selon les peines principales qui les sanctionnent. Sont qualifiés crimes les infractions punies de mort, de prison à vie ou supérieure à 10 ans. Sont délits les infractions punies d'emprisonnement de 11 jours à 10 ans. Sont contraventions les infractions punies d'emprisonnement de 1 à 10 jours."},
+  {terme:"Déchéances (CP)",src:"CP Art.30",def:"Les déchéances consistent dans : la destitution et l'exclusion de toutes fonctions, emplois ou offices publics ; l'incapacité d'être juré, assesseur, expert, arbitre ou représentant de commerce ; l'incapacité d'être tuteur ou conseil judiciaire ; le retrait et l'incapacité de l'autorité parentale ; la révocation et l'exclusion du droit de porter des décorations."},
+  {terme:"Relégation",src:"CP Art.37-39",def:"Mesure de sûreté applicable au récidiviste qui, dans l'intervalle de dix ans, a fait l'objet de plusieurs condamnations. La relégation ne peut être prononcée contre les condamnés âgés de moins de 25 ans ou de plus de 60 ans à l'expiration de la peine principale."},
+  {terme:"Sursis (CP)",src:"CP Art.40",def:"Tout condamné à une peine privative de liberté supérieure à un an peut, compte tenu des faits de la cause et par décision motivée, être placé sous le régime du sursis. Si durant le délai d'épreuve le condamné commet une nouvelle infraction, la peine est mise à exécution."},
+  {terme:"Présomption d'innocence (CPP)",src:"CPP Art.8",def:"Toute personne suspectée d'avoir commis une infraction est présumée innocente jusqu'à ce que sa culpabilité ait été légalement établie au cours d'un procès où toutes les garanties nécessaires à sa défense lui auront été assurées."},
+  {terme:"Suspect (CPP)",src:"CPP Art.9",def:"Le suspect est toute personne contre qui il existe des renseignements ou indices susceptibles d'établir qu'elle a pu commettre une infraction ou participer à la commission de celle-ci. L'inculpé est le suspect contre lequel des poursuites pénales ont été engagées."},
+  {terme:"Mandat de justice (CPP)",src:"CPP Art.11",def:"Acte écrit par lequel un magistrat ou une juridiction ordonne : la comparution ou la conduite d'un individu devant lui ; la détention provisoire d'un inculpé ; l'incarcération d'un condamné ; la recherche d'objets ayant servi à la commission d'une infraction. Constituent des mandats de justice : le mandat de comparution, d'amener, de détention provisoire, d'extraction, de perquisition, d'arrêt et d'incarcération."},
+  {terme:"Nullité absolue (CPP)",src:"CPP Art.3",def:"La violation d'une règle de procédure pénale est sanctionnée par la nullité absolue lorsqu'elle préjudicie aux droits de la défense ou porte atteinte à l'ordre public. La nullité absolue peut être soulevée à tout moment de la procédure, même d'office par le juge."},
+  {terme:"Nullité relative (CPP)",src:"CPP Art.4",def:"Les cas de violation autres que ceux prévus à l'article 3 sont sanctionnés d'une nullité relative. L'exception de nullité relative doit être soulevée par les parties in limine litis et devant la juridiction qui a été saisie avant toute défense au fond."},
+  {terme:"Homicide volontaire",src:"CP Art.275",def:"Est puni de mort ou de prison à vie, quiconque cause intentionnellement la mort d'un être humain. L'homicide volontaire est un crime qui nécessite la réunion d'un élément matériel (l'acte de tuer) et d'un élément moral (l'intention de donner la mort)."},
+  {terme:"Coups et blessures volontaires",src:"CP Art.279",def:"Quiconque fait à autrui des blessures, voies de fait ou violences est puni. La peine est aggravée si les coups ont entraîné une incapacité de travail, une infirmité permanente ou la mort sans intention de la donner."},
+  {terme:"Vol simple",src:"CP Art.318",def:"Est puni d'emprisonnement de 5 à 10 ans et d'une amende, quiconque soustrait frauduleusement la chose d'autrui. Le vol nécessite : une soustraction (acte matériel), d'une chose appartenant à autrui, avec l'intention frauduleuse."},
+  {terme:"Escroquerie",src:"CP Art.320 Cam.",def:"Est puni d'emprisonnement de 1 à 10 ans et d'une amende, quiconque, dans le but de s'approprier une chose appartenant à autrui ou de se faire remettre des fonds, emploie des manœuvres frauduleuses pour tromper une personne et l'induire à lui remettre des fonds, valeurs ou biens."},
+  {terme:"Abus de confiance",src:"CP Art.321 Cam.",def:"Détournement au préjudice d'autrui de fonds, valeurs ou biens quelconques qui ont été remis à titre précaire. L'auteur a reçu la chose légitimement mais la détourne de l'usage convenu, causant un préjudice au propriétaire."},
+  {terme:"Viol",src:"CP Art.296",def:"Est puni d'emprisonnement à vie, quiconque contraint une personne à des rapports sexuels par violence, menace ou surprise. Le viol est un crime nécessitant un élément matériel (acte sexuel non consenti) et un élément moral (la contrainte)."},
+  {terme:"Corruption active",src:"CP Art.135 Cam.",def:"Quiconque offre ou promet un avantage quelconque à un fonctionnaire, un élu ou toute personne exerçant une mission de service public, pour qu'il accomplisse ou s'abstienne d'accomplir un acte de sa fonction, est punissable de corruption active."},
+  {terme:"Corruption passive",src:"CP Art.134",def:"Est puni de prison et d'amende, tout fonctionnaire, tout élu ou toute personne exerçant une mission de service public qui sollicite ou agrée des offres, promesses, dons ou présents pour accomplir ou s'abstenir d'accomplir un acte de sa fonction."},
+  {terme:"Détournement de deniers publics",src:"CP Art.184",def:"Est puni d'emprisonnement et d'amende, tout fonctionnaire qui détourne ou soustrait des fonds, effets ou pièces dont il a la charge en raison de ses fonctions, ou qui facilite leur détournement par un tiers."},
+  {terme:"Faux en écriture",src:"CP Art.148",def:"Altération frauduleuse de la vérité dans un document, de nature à causer préjudice. Le faux peut être matériel (falsification d'un document existant) ou intellectuel (insertion de mentions mensongères dans un document authentique)."},
+  {terme:"Outrage à magistrat",src:"CP Art.152 Cam.",def:"Le fait de tenir des propos ou d'accomplir des actes portant atteinte à la dignité, à l'honneur ou à l'intégrité d'un magistrat dans l'exercice ou à l'occasion de l'exercice de ses fonctions. Cette infraction est aggravée si commise à l'audience."},
+  {terme:"Flagrant délit (CPP)",src:"CPP Art.103",def:"Est qualifiée flagrante, l'infraction qui se commet actuellement ou qui vient de se commettre. Il y a également flagrant délit lorsque dans un temps très voisin de l'action, la personne soupçonnée est poursuivie par la clameur publique ou se trouve en possession d'objets, ou présente des traces ou indices laissant penser qu'elle a participé au crime ou au délit."},
+  {terme:"Officier de Police Judiciaire (CPP)",src:"CPP Art.80",def:"Ont la qualité d'officier de police judiciaire les officiers de police et assimilés ainsi que certains fonctionnaires auxquels la loi attribue cette qualité. Les OPJ ont compétence pour constater les infractions, en rassembler les preuves et en rechercher les auteurs."},
+  {terme:"Garde à vue (CPP)",src:"CPP Art.119",def:"La garde à vue est une mesure de contrainte permettant à l'OPJ, sous le contrôle du Parquet, de retenir dans un local de police ou de gendarmerie une personne à l'encontre de laquelle il existe une ou plusieurs raisons plausibles de soupçonner qu'elle a commis ou tenté de commettre une infraction. Sa durée initiale est de 24 heures renouvelable."},
+  {terme:"Instruction (CPP)",src:"CPP Art.144",def:"L'instruction préparatoire est obligatoire en matière de crime et facultative en matière de délit. Elle est menée par le juge d'instruction qui, à cette fin, dispose de pouvoirs d'investigation étendus (inculpation, mandat, commission rogatoire, expertise)."},
+  {terme:"Liberté du prévenu (CPP)",src:"CPP Art.221",def:"L'inculpé ou le prévenu est, sauf cas exceptionnel, laissé en liberté. Il peut être soumis à des obligations de contrôle judiciaire. La détention provisoire est une mesure exceptionnelle qui ne peut être ordonnée que dans les cas et conditions prévus par la loi."},
+  {terme:"Compétence territoriale (CPP)",src:"CPP Art.310",def:"Est compétent le tribunal du lieu où l'infraction a été commise, le tribunal du domicile de l'inculpé ou le tribunal du lieu de son arrestation. En matière de complicité, le tribunal compétent pour l'auteur principal est également compétent pour les complices."},
+  {terme:"Acquittement / Relaxe (CPP)",src:"CPP Art.359",def:"Après délibéré, si la culpabilité n'est pas établie, le tribunal prononce l'acquittement (en matière criminelle) ou la relaxe (en matière correctionnelle ou contraventionnelle). L'acquittement ou la relaxe entraîne la mise en liberté immédiate."},
 ];
 
-const LEXIQUE_GENERAL = LEXIQUE_BASE.sort((a,b)=>a.terme.localeCompare(b.terme, "fr", {sensitivity:"base"}));
-
-const DEFAULT_MODELS = {
-  mistral: "mistral-large-latest",
-  anthropic: "claude-3-5-sonnet-latest"
-};
-
-function getStoredValue(key, fallback="") {
-  if (typeof window === "undefined") return fallback;
-  try {
-    const value = window.localStorage.getItem(key);
-    return value ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-async function callLLM(messages, system, config, max_tokens=1000) {
-  const provider = config?.provider || "mistral";
-  const apiKey = config?.apiKey?.trim();
-  const model = config?.model?.trim() || DEFAULT_MODELS[provider];
-
-  if (!apiKey) {
-    throw new Error(`Clé API ${provider === "mistral" ? "Mistral" : "Anthropic"} manquante.`);
-  }
-
-  if (provider === "mistral") {
-    const r = await fetch("https://api.mistral.ai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens,
-        temperature: 0.4,
-        messages: [{ role: "system", content: system }, ...messages]
-      })
-    });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d?.message || d?.error?.message || `HTTP ${r.status}`);
-    const content = d?.choices?.[0]?.message?.content;
-    return typeof content === "string" ? content : "";
-  }
-
-  const r = await fetch("https://api.anthropic.com/v1/messages", {
-    method:"POST",
-    headers:{
-      "Content-Type":"application/json",
-      "x-api-key":apiKey,
-      "anthropic-version":"2023-06-01"
-    },
-    body:JSON.stringify({model, max_tokens, system, messages})
-  });
-  const d = await r.json();
-  if(!r.ok) throw new Error(d?.error?.message || `HTTP ${r.status}`);
-  return (d.content || []).map(b=>b.text||"").join("");
-}
-
-export default function LOPJ() {
-  const [screen, setScreen] = useState("accueil");
-  const [source, setSource] = useState("Les deux");
-  const [niveau, setNiveau] = useState("Intermédiaire");
-  const [cas, setCas] = useState(null);
-  const [casLoading, setCasLoading] = useState(false);
-  const [reponseUser, setReponseUser] = useState("");
-  const [correction, setCorrection] = useState(null);
-  const [correctionLoading, setCorrectionLoading] = useState(false);
-  const [stats, setStats] = useState({total:0,corriges:0,score:0});
-  const [historique, setHistorique] = useState([]);
-  const [showCorrection, setShowCorrection] = useState(false);
-  const [llmProvider, setLlmProvider] = useState(() => getStoredValue("lopj.llmProvider", "mistral"));
-  const [apiKey, setApiKey] = useState(() => getStoredValue("lopj.apiKey", ""));
-  const [apiModel, setApiModel] = useState(() => getStoredValue("lopj.apiModel", DEFAULT_MODELS.mistral));
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem("lopj.llmProvider", llmProvider);
-      window.localStorage.setItem("lopj.apiKey", apiKey);
-      window.localStorage.setItem("lopj.apiModel", apiModel);
-    } catch {}
-  }, [llmProvider, apiKey, apiModel]);
-
-  const hasApiKey = apiKey.trim().length > 0;
-  const llmConfig = { provider: llmProvider, apiKey, model: apiModel.trim() || DEFAULT_MODELS[llmProvider] };
-
-  const ensureApiReady = () => {
-    if (hasApiKey) return true;
-    alert(`Ajoutez votre clé API ${llmProvider === "mistral" ? "Mistral" : "Anthropic"} dans Paramètres.`);
-    setScreen("config");
-    return false;
-  };
-
-  const generateCas = useCallback(async () => {
-    if(!ensureApiReady()) return;
-    setCasLoading(true);
-    setCas(null);
-    setCorrection(null);
-    setReponseUser("");
-    setShowCorrection(false);
-    
-    const sys = `Tu es L'OPJ, expert en droit pénal camerounais. Génère un cas pratique réaliste avec faits, questions et articles pertinents. Réponds en JSON valide uniquement.`;
-    try {
-      const txt = await callLLM([{role:"user",content:"Génère un cas pratique."}], sys, llmConfig);
-      const clean = txt.replace(/```json|```/g,"").trim();
-      let parsed = JSON.parse(clean);
-      setCas(parsed);
-      setStats(s=>({...s,total:s.total+1}));
-      setScreen("cas");
-    } catch(e) { 
-      alert("Erreur: "+e.message);
-    }
-    finally { setCasLoading(false); }
-  }, [llmProvider, apiKey, apiModel]);
-
-  const getCorrection = useCallback(async (sansReponse=false) => {
-    if(!ensureApiReady()) return;
-    if(!sansReponse && !reponseUser.trim()) { alert("Rédigez votre analyse."); return; }
-    setCorrectionLoading(true);
-    
-    const sys = `Tu es professeur de droit pénal. Corrige cette analyse avec la méthode socratique.`;
-    const content = `CAS: ${cas.titre}\n\nFAITS:\n${cas.faits}\n\nRÉPONSE:\n${reponseUser || "(Pas de réponse)"}`;
-    try {
-      const txt = await callLLM([{role:"user",content}], sys, llmConfig, 1400);
-      setCorrection(txt);
-      setShowCorrection(true);
-      if(!sansReponse){
-        const m = txt.match(/(\d+)\/20/);
-        const score = m?parseInt(m[1]):10;
-        setStats(s=>{const n=s.corriges+1;return{...s,corriges:n,score:Math.round((s.score*s.corriges+score)/n)};});
-        setHistorique(h=>[{titre:cas.titre,score,date:new Date().toLocaleDateString("fr-FR")},...h.slice(0,19)]);
-      }
-    } catch(e) { alert("Erreur: "+e.message); }
-    finally { setCorrectionLoading(false); }
-  }, [cas, reponseUser, llmProvider, apiKey, apiModel]);
-
-  return (
-    <div style={S.app}>
-      <header style={S.header}>
-        <div style={S.hLeft}>
-          <span style={S.logo}>⚖️</span>
-          <div><div style={S.hTitle}>L'OPJ</div><div style={S.hSub}>Agent IA · Droit Pénal Camerounais</div></div>
-        </div>
-        <nav style={S.nav}>
-          {[["accueil","🏠"],["config","⚙️"],["stats","📊"],["lexique","📚"]].map(([k,icon])=>(
-            <button key={k} onClick={()=>setScreen(k)} style={{...S.navBtn,...(screen===k?S.navActive:{})}}>{icon}</button>
-          ))}
-        </nav>
-      </header>
-
-      <main style={S.main}>
-        {screen==="accueil"&&<Accueil stats={stats} historique={historique} onGenerate={generateCas} casLoading={casLoading}/>}
-        {screen==="config"&&<Config source={source} setSource={setSource} niveau={niveau} setNiveau={setNiveau} llmProvider={llmProvider} setLlmProvider={setLlmProvider} apiKey={apiKey} setApiKey={setApiKey} apiModel={apiModel} setApiModel={setApiModel}/>}
-        {screen==="cas"&&cas&&<CasScreen cas={cas} reponseUser={reponseUser} setReponseUser={setReponseUser} correction={correction} correctionLoading={correctionLoading} casLoading={casLoading} onCorrection={getCorrection} onNewCas={generateCas} showCorrection={showCorrection}/>}
-        {screen==="stats"&&<Stats stats={stats} historique={historique}/>}
-        {screen==="lexique"&&<Lexique allTerms={LEXIQUE_GENERAL}/>}
-      </main>
-      <footer style={S.footer}>L'OPJ — Maîtrisez le droit pénal camerounais</footer>
-    </div>
-  );
-}
-
-function Accueil({stats,historique,onGenerate,casLoading}){
-  return <div style={S.pad}>
-    <div style={S.hero}>
-      <div style={{fontSize:52}}>⚖️</div>
-      <h1 style={S.heroTitle}>L'OPJ</h1>
-      <button onClick={onGenerate} disabled={casLoading} style={{...S.btnP,fontSize:16,padding:"14px 36px"}}>
-        {casLoading?"⏳":"🎯 Générer un Cas"}
-      </button>
-    </div>
-    {historique.length>0&&<div style={{marginTop:24}}>
-      <h3 style={S.secTitle}>📋 Historique</h3>
-      {historique.slice(0,5).map((h,i)=><div key={i} style={S.hItem}>
-        <span>{h.titre}</span>
-        <span style={{fontWeight:800,color:h.score>=14?C.green:C.warn}}>{h.score}/20</span>
-      </div>)}
-    </div>}
-  </div>;
-}
-
-function Config({source,setSource,niveau,setNiveau,llmProvider,setLlmProvider,apiKey,setApiKey,apiModel,setApiModel}){
-  return <div style={S.pad}>
-    <h2 style={S.pageTitle}>⚙️ Paramètres</h2>
-    <div style={{display:"flex",flexDirection:"column",gap:20}}>
-      <Block label="Source juridique">
-        <div style={S.toggles}>{["Code Pénal","Code de Procédure Pénale","Les deux"].map(s=><button key={s} onClick={()=>setSource(s)} style={{...S.tog,...(source===s?S.togA:{})}}>{s}</button>)}</div>
-      </Block>
-      <Block label="Niveau">
-        <div style={S.toggles}>{["Débutant","Intermédiaire","Avancé","Expert"].map(n=><button key={n} onClick={()=>setNiveau(n)} style={{...S.tog,...(niveau===n?S.togA:{})}}>{n}</button>)}</div>
-      </Block>
-      <Block label="Moteur IA">
-        <div style={S.toggles}>
-          {[["mistral","Mistral"],["anthropic","Anthropic"]].map(([id,label])=>(
-            <button key={id} onClick={()=>setLlmProvider(id)} style={{...S.tog,...(llmProvider===id?S.togA:{})}}>{label}</button>
-          ))}
-        </div>
-        <input type="password" value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="Clé API..." style={{...S.input,marginTop:10}}/>
-      </Block>
-    </div>
-  </div>;
-}
-
-function Block({label,children}){return<div><label style={{fontSize:14,fontWeight:700,color:C.gold,marginBottom:10,display:"block"}}>{label}</label>{children}</div>;}
-
-function CasScreen({cas,reponseUser,setReponseUser,correction,correctionLoading,casLoading,onCorrection,onNewCas,showCorrection}){
-  return <div style={S.pad}>
-    <div style={S.card}>
-      <h2 style={{fontSize:20,fontWeight:800,margin:0}}>{cas.titre}</h2>
-    </div>
-    <div style={S.card}>
-      <div style={S.secLabel}>📜 FAITS</div>
-      <p style={{fontSize:14,lineHeight:1.8,margin:0,color:C.text}}>{cas.faits}</p>
-    </div>
-    {!showCorrection ? (
-      <div style={S.card}>
-        <div style={S.secLabel}>✍️ VOTRE ANALYSE</div>
-        <textarea value={reponseUser} onChange={e=>setReponseUser(e.target.value)} placeholder="Rédigez votre analyse..." style={{...S.textarea,minHeight:180}}/>
-        <div style={{display:"flex",gap:10,marginTop:14}}>
-          <button onClick={()=>onCorrection(false)} disabled={correctionLoading||!reponseUser.trim()} style={S.btnP}>✅ Soumettre</button>
-          <button onClick={()=>onCorrection(true)} disabled={correctionLoading} style={S.btnS}>💡 Corrigé</button>
-          <button onClick={onNewCas} disabled={casLoading} style={S.btnS}>🎲 Nouveau</button>
-        </div>
-      </div>
-    ) : (
-      <div style={{background:`${C.gold}08`,border:`1px solid ${C.gold}30`,borderRadius:12,padding:20,marginTop:4}}>
-        <div style={{fontSize:14,fontWeight:800,color:C.gold,marginBottom:16}}>📖 CORRECTION</div>
-        <p style={{fontSize:13,lineHeight:1.7,color:C.text,margin:0,whiteSpace:"pre-wrap"}}>{correction}</p>
-        <button onClick={onNewCas} disabled={casLoading} style={{...S.btnP,marginTop:16}}>🎲 Nouveau cas</button>
-      </div>
-    )}
-  </div>;
-}
-
-function Stats({stats,historique}){
-  return <div style={S.pad}>
-    <h2 style={S.pageTitle}>📊 Statistiques</h2>
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
-      {[["Cas",stats.total],["Corrigés",stats.corriges],["Score",stats.corriges?`${stats.score}/20`:"—"]].map(([l,v])=>(
-        <div key={l} style={S.statBig}><div style={{fontSize:28,fontWeight:900,color:C.gold}}>{v}</div><div style={{fontSize:11,color:C.muted}}>{l}</div></div>
-      ))}
-    </div>
-  </div>;
-}
-
-function Lexique({allTerms}){
-  const [lettre,setLettre]=useState("A");
-  const alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
-  const normalizeInitial = (value) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").charAt(0).toUpperCase();
-  const termesByLetter = (l) => allTerms.filter(t=>normalizeInitial(t.terme)===l);
-
-  return <div style={S.pad}>
-    <h2 style={S.pageTitle}>📚 Lexique</h2>
-    <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:16}}>
-      {alphabet.map(l=><button key={l} onClick={()=>setLettre(l)} style={{...S.chip,...(lettre===l?{background:C.gold,color:"#000"}:{})}}>{l}</button>)}
-    </div>
-    {termesByLetter(lettre).map((t,i)=><div key={i} style={{...S.card,marginBottom:10}}>
-      <div style={{fontWeight:800,color:C.gold,marginBottom:8}}>{t.terme}</div>
-      <p style={{fontSize:13,lineHeight:1.7,color:C.text,margin:0}}>{t.def}</p>
-    </div>)}
-  </div>;
-}
-
-const C={bg:"#0f1419",surface:"#1a2332",border:"#2d3f55",gold:"#c8a84b",text:"#e2e8f0",muted:"#94a3b8",dim:"#64748b",green:"#22c55e",warn:"#f59e0b",red:"#ef4444"};
-
-const S={
-  app:{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:"system-ui,sans-serif",display:"flex",flexDirection:"column"},
-  header:{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"12px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100},
-  hLeft:{display:"flex",alignItems:"center",gap:12},
-  logo:{fontSize:28},
-  hTitle:{fontWeight:800,fontSize:20,color:C.gold},
-  hSub:{fontSize:11,color:C.muted},
-  nav:{display:"flex",gap:4},
-  navBtn:{background:"transparent",border:"none",cursor:"pointer",fontSize:20,padding:"6px 10px",borderRadius:8},
-  navActive:{background:C.border,color:C.gold},
-  main:{flex:1,maxWidth:820,margin:"0 auto",width:"100%"},
-  footer:{textAlign:"center",padding:"12px",color:C.dim,fontSize:11,borderTop:`1px solid ${C.border}`},
-  pad:{padding:"24px 20px"},
-  pageTitle:{fontSize:22,fontWeight:700,marginBottom:20,color:C.gold},
-  hero:{textAlign:"center",padding:"32px 20px",background:C.surface,borderRadius:16,border:`1px solid ${C.border}`,marginBottom:24},
-  heroTitle:{fontSize:42,fontWeight:900,color:C.gold,margin:"0 0 8px"},
-  statBig:{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:16,textAlign:"center"},
-  card:{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:20,marginBottom:12},
-  secLabel:{fontSize:11,fontWeight:800,color:C.gold,letterSpacing:1.5,marginBottom:12},
-  secTitle:{fontSize:16,fontWeight:700,color:C.gold,marginBottom:12},
-  hItem:{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8},
-  toggles:{display:"flex",flexWrap:"wrap",gap:8},
-  tog:{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:"8px 14px",cursor:"pointer"},
-  togA:{background:C.gold,borderColor:C.gold,color:"#000",fontWeight:700},
-  btnP:{background:C.gold,color:"#000",border:"none",borderRadius:8,padding:"11px 22px",fontWeight:700,cursor:"pointer"},
-  btnS:{background:C.surface,color:C.text,border:`1px solid ${C.border}`,borderRadius:8,padding:"11px 22px",cursor:"pointer"},
-  textarea:{width:"100%",background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:14,fontSize:14,lineHeight:1.6,outline:"none",boxSizing:"border-box",fontFamily:"inherit"},
-  input:{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:"11px 16px",outline:"none"},
-  chip:{background:C.surface,border:`1px solid ${C.border}`,borderRadius:20,color:C.muted,padding:"5px 12px",fontSize:12,cursor:"pointer"},
-};
+// ─── LEXIQUE JURIDIQUE (A-Z) ─────────────────────────────────────────────────
+const LEXIQUE_JURIDIQUE = [
+  {terme:"Assistant spécialis é",src:"Lexique",def:"Fonctionnaire de catégorie A ou B, ou personne titulaire, dans des matières définies par décret, d’un diplôme national sanctionnant une formation d’une durée au moins égale à quatre années d’études supérieures après le baccalauréat, remplissant les conditions d’accès à la fonction publique et justifiant d’une expérience professionnelle minimale de quatre années."},
+  {terme:"Association de malfaiteurs",src:"Lexique",def:"Tout groupement formé ou entente établie en vue de la préparation, caractérisée par un ou plusieurs faits matériels, d’un ou plusieurs crimes ou d’un ou plusieurs délits punis d’au moins 5 ans d’emprisonnement."},
+  {terme:"Atteinte sexuelle",src:"Lexique",def:"Acte d’ordre sexuel : 1 o Soit commis avec violence, contrainte, menace ou surprise, ou, lorsque la loi le prévoit, commis sur un mineur par un majeur, auxquels cas il est constitutif d’une agression sexuelle toujours punissable, quelle que soit la victime, majeure ou mineure ; 2 o Soit réalisé sans violence, contrainte, menace ni surprise, et il n’est alors punissable qu’à l’égard des mineurs."},
+  {terme:"Atteintes àl’état civil",src:"Lexique",def:"Ensemble d’infractions, de caractère délictuel ou contraventionnel, qui compromettent l’état civil des personnes. Regroupées sous une division particulière du Code pénal, elles concernent le non-respect du nom assigné par l’état civil, la bigamie , la célébration d’un mariage religieux sans mariage civil préalable, l’entrave à la liberté des funérailles, le non-respect des règles de tenue des actes d’état civil, la non-déclaration d’une naissance, la non-déclaration de découverte d’un enfant nou..."},
+  {terme:"Atteintes à la filiation",src:"Lexique",def:"Infractions relatives, d’une part, à la provocation à l’abandon d’enfant, d’autre part, à la substitution volontaire d’enfant, ainsi qu’à la simulation ou dissimulation d’enfant."},
+  {terme:"Atteintes à la sûreté del’État",src:"Lexique",def:"Ensemble de crimes et de délits qui compromettent, soit la défense nationale, soit les relations de la France avec l’étranger, soit la sécurité de l’État et la paix publique. Depuis la réforme du Code pénal, les atteintes à la sûreté de l’État sont référencées sous le titre des atteintes aux intérêts fondamentaux de la Nation ."},
+  {terme:"Atteintes involontaires",src:"Lexique",def:"Expression générique, qui regroupe l’homicide involontaire et les violences involontaires contre les personnes, par opposition aux atteintes volontaires, soit à la vie, soit à l’intégrité physique ou psychique des personnes."},
+  {terme:"Attentat à la pudeur",src:"Lexique",def:"Acte illicite d’ordre sexuel, avec ou sans violence, auquel la victime, personne de l’un ou l’autre sexe, se trouve physiquement mêlée. Depuis la réforme du Code pénal, les attentats à la pudeur sont désormais qualifiés d’atteintes sexuelles, et relèvent, soit des agressions sexuelles, soit de la mise en péril des mineurs ."},
+  {terme:"Audition libre",src:"Lexique",def:"Audition, consentie et sans contrainte, d’une personne par des enquêteurs hors la présence d’un avocat. 1 o Elle concerne principalement les personnes sur lesquelles ne pèse aucune suspicion d’ infraction . Mais si, au cours de l’audition, des raisons plausibles permettent de soupçonner qu’elle a commis ou tenté de commettre une infraction, la contrainte peut être exercée, soit sous forme de retenue, qui ne saurait excéder quatre heures, soit par un placement en garde à vue ."},
+  {terme:"Autodéfense",src:"Lexique",def:"Fait par une personne de prévenir une agression, sans respecter les conditions de nécessité et de proportionnalité de la légitime défense (engin piégé susceptible de tuer…)."},
+  {terme:"Autopsie judiciaire",src:"Lexique",def:"Autopsie ordonnée dans le cadre d’une enquête judiciaire ou d’une information judiciaire. Elle ne peut être réalisée que par un praticien titulaire d’un diplôme attestant de sa formation en médecine légale ou d’un titre justifiant de son expérience en médecine légale."},
+  {terme:"Avertissement pénal probatoire",src:"Lexique",def:"Alternative aux poursuites consistant, pour le procureur de la République ou son délégué, à adresser à l’auteur d’une infraction qui a reconnu sa culpabilité un avertissement lui rappelant les obligations résultant de la loi ou du règlement ainsi que les peines encourues, et lui indiquant que cette décision est revue en cas de commission d’une nouvelle infraction dans un délai de deux ans, délai fixé à un an en matière contraventionnelle."},
+  {terme:"Balisage",src:"Lexique",def:"Dispositif technique permettant la localisation en temps réel d’une personne, d’un véhicule ou d’un objet. CSI, art. 851-5."},
+  {terme:"Bande organisée",src:"Lexique",def:"Circonstance aggravante de certaines infractions, définie comme tout groupement formé ou toute entente établie en vue de la préparation, caractérisée par un ou plusieurs faits matériels d’une ou de plusieurs infractions."},
+  {terme:"Bannissement",src:"Lexique",def:"Peine criminelle politique infamante, consistant dans l’interdiction de résider en France. Cette peine a disparu depuis la réforme du Code pénal. Banque"},
+  {terme:"Bizutage",src:"Lexique",def:"Hors les cas de violences, de menaces ou d’atteintes sexuelles, le bizutage est le fait pour une personne d’amener autrui, contre son gré ou non, à subir ou commettre des actes humiliants ou dégradants ou à consommer de l’alcool de manière excessive, lors de manifestations ou de réunions liées aux milieux scolaire et socio-éducatif."},
+  {terme:"Blanchiment de capitaux illicites",src:"Lexique",def:"Fait de faciliter, par tout moyen, la justification mensongère de l’origine des biens ou des revenus de l’auteur d’un crime ou d’un délit ayant procuré à celui-ci un profit direct ou indirect, ainsi que d’apporter un concours à une opération de placement, de dissimulation ou de conversion du produit de l’une de ces infractions."},
+  {terme:"Bureauxd’aide aux victimes (BAV )",src:"Lexique",def:"Structures d’accueil des victimes d’infractions pénales, composées de représentants d’une ou plusieurs associations d’aide aux victimes, et mises en place dans chaque tribunal judiciaire par conventions passées entre les chefs de cour d’appel et les associations concernées. Elles ont pour mission d’informer les victimes et de répondre aux difficultés qu’elles sont susceptibles de rencontrer tout au long de la procédure pénale."},
+  {terme:"Bureaux del’exécution des peines (BEX)",src:"Lexique",def:"Services d’accueil des condamnés placés auprès des parquets, dans chaque tribunal judiciaire et dans chaque cour d’appel, pour les majeurs comme pour les mineurs, dont la composition, les missions et les modalités de fonctionnement sont précisées par décret."},
+  {terme:"Captation de données informatiques",src:"Lexique",def:"Opérations effectuées sous l’autorité et le contrôle du juge des libertés et de la détention ou du juge d’instruction, pour les nécessités de l’enquête ou de l’information concernant un crime ou un délit entrant dans le champ d’application de la criminalité et de la délinquance organisées, consistant, sans le consentement des intéressés, à accéder, en tous lieux, à des données informatiques, à les enregistrer, à les conserver et à les transmettre, telles qu’elles sont stockées dans un système in..."},
+  {terme:"Casier judiciaire",src:"Lexique",def:"Relevé national et automatisé des condamnations pénales et de certaines autres décisions. Les informations ainsi centralisées font l’objet de 3 « bulletins » (B1 – B2 – B3), qui peuvent être délivrés à des destinataires précis, mais dont le contenu varie selon la qualité de ceux-ci. Le casier judiciaire s’applique aux personnes physiques comme aux personnes morales."},
+  {terme:"Centre de détention",src:"Lexique",def:"Établissement pénitentiaire dont le régime est principalement orienté vers la resocialisation des condamnés. Parmi ces établissements figurent les centres pour jeunes condamnés et les établissements ouverts."},
+  {terme:"Centre éducatif fermé (CEF )",src:"Lexique",def:"Établissement public ou privé habilité dans des conditions prévues par décret en Conseil d’État, dans lequel les mineurs sont placés en application d’un contrôle judiciaire ou d’un sursis probatoire ou d’un placement à l’extérieur ou à la suite d’une libération conditionnelle. Au sein de ces centres, les mineurs font l’objet des mesures de surveillance et de contrôle permettant d’assurer un suivi éducatif et pédagogique renforcé et adapté à leur personnalité."},
+  {terme:"Césure du procès pénal",src:"Lexique",def:"Fractionnement de la procédure de jugement applicable aux mineurs délinquants, consistant à se déterminer sur la responsabilité du mineur lors d’une première audience, et à ajourner le prononcé de la sanction à une audience ultérieure, le mineur étant dans l’intervalle soumis à des mesures d’investigations et éducatives."},
+  {terme:"Chambre criminelle",src:"Lexique",def:"Formation de la Cour de cassation chargée de l’examen des pourvois en toute matière pénale et non pas seulement criminelle."},
+  {terme:"Chambre del’instruction",src:"Lexique",def:"Formation de la cour d’appel , qui s’est substituée à l’ancienne chambre d’accusation, principalement compétente pour connaître de l’appel des ordonnances ou décisions rendues dans le cadre d’une instruction . Elle statue également comme juridiction disciplinaire des officiers et agents de police judiciaire, ainsi qu’en matière d’extradition, de réhabilitation judiciaire, de contentieux de l’amnistie, de règlement de juges …"},
+  {terme:"Chambre des appels correctionnels",src:"Lexique",def:"Formation de la cour d’appel compétente pour statuer en appel sur les affaires jugées en premier ressort par les tribunaux correctionnels et par les tribunaux de police."},
+  {terme:"Chantage",src:"Lexique",def:"Fait d’obtenir ou de tenter d’obtenir, en menaçant de révéler ou d’imputer des faits de nature à porter atteinte à l’honneur où à la considération, soit une signature, un engagement ou une renonciation, soit la révélation d’un secret, soit la remise de fonds, de valeurs ou d’un bien quelconque."},
+  {terme:"Circonstances aggravantes",src:"Lexique",def:"Événements ou qualités limitativement énumérés par la loi et dont la constatation entraîne l’application d’une peine plus lourde que celle normalement applicable."},
+  {terme:"Circonstances atténuantes",src:"Lexique",def:"Événements entourant la commission d’une infraction, ou traits de caractère relatifs à la personne de son auteur, librement appréciés par le juge et entraînant une modulation de la peine dans le sens de la clémence. Depuis la réforme du Code pénal, la notion même de circonstances atténuantes a disparu, comme une conséquence normale de la suppression des peines minimales."},
+  {terme:"Citation directe",src:"Lexique",def:"Acte de procédure par lequel le ministère public ou la victime saisit directement la juridiction de jugement en informant le prévenu des coordonnées de l’audience."},
+  {terme:"Classement sans suite",src:"Lexique",def:"Décision prise par le ministère public en vertu du principe de l’opportunité des poursuites, écartant momentanément la mise en mouvement de l’action publique."},
+  {terme:"Co-activit é",src:"Lexique",def:"Participation à une infraction de manière déterminante et nécessaire qui donne lieu à une poursuite de l’agent comme coauteur, dans les mêmes conditions que les autres auteurs."},
+  {terme:"Commandement del’autorité légitime",src:"Lexique",def:"Fait justificatif qui supprime le caractère délictueux d’actes accomplis en exécution d’un ordre donné par une autorité publique, compétente et légitime, à moins que cet ordre ne soit manifestement illégal."},
+  {terme:"Commencementd’exécution",src:"Lexique",def:"Acte caractérisant la tentative punissable, qui doit tendre directement à l’infraction avec intention de la commettre, ou qui a pour conséquence immédiate et directe la consommation de celle-ci."},
+  {terme:"Commissaire de police",src:"Lexique",def:"Agent de la police nationale, qui, investi de la qualité d’officier de police judiciaire, est habilité à accomplir certains actes de procédure. Commissaire de la Républiqu e"},
+  {terme:"Commission del’application des peines",src:"Lexique",def:"Instance présidée par le juge de l’application des peines et composée du procureur de la République , du chef d’établissement pénitentiaire et d’un représentant du service pénitentiaire d’insertion et de probation . Lorsque la loi le prévoit, les décisions en matière d’application des peines sont prises après son avis."},
+  {terme:"Commission nationale de contrôle des techniques de renseignement",src:"Lexique",def:"Mise en place par la loi n o 2015-912 du 24 juillet 2015 relative au renseignement, la Commission nationale de contrôle des techniques de renseignement est une autorité administrative indépendante, qui a pour mission de veiller à ce que le recueil de renseignement soit mis en œuvre sur le territoire national conformément à la législation en vigueur, dans le respect de la vie privée et de toutes ses composantes, notamment le secret des correspondances, la protection des données personnelles et l’..."},
+  {terme:"Commutation de peine",src:"Lexique",def:"Mesure de remplacement d’une peine par une autre, à la suite d’une grâce présidentielle. Ainsi, une peine privative de liberté peut être commuée en une peine d’amende."},
+  {terme:"Comparution à délai différé",src:"Lexique",def:"Nouvelle procédure de poursuite, mise en place par la loi n o 2019-222 du 23 mars, complémentaire de la comparution immédiate . S’il existe contre la personne poursuivie des charges suffisantes pour la faire comparaître devant le tribunal correctionnel , mais que l’affaire n’est pas en état d’être jugée selon la procédure de comparution immédiate parce que n’ont pas encore été obtenus les résultats de réquisitions, d’examens techniques ou médicaux déjà sollicités, le prévenu est présenté devant ..."},
+  {terme:"Comparution immédiate",src:"Lexique",def:"Modalité de saisine du tribunal correctionnel qui remplace, depuis la loi n o 83-466 du 10 juin 1983, la saisine directe. Elle concerne uniquement les affaires en état d’être jugées, qu’elles soient flagrantes ou non, et elle n’est applicable ni aux mineurs, ni en matière de délits de presse, de délits politiques ou d’infractions dont la procédure de poursuite est prévue par une loi spéciale."},
+  {terme:"Comparution sur reconnaissance préalable de culpabilit é",src:"Lexique",def:"Mode de saisine du tribunal correctionnel, encore appelé le « plaider coupable », consistant, y compris à la fin d’une information judiciaire, à éviter la lourdeur d’un examen en audience dès lors que l’auteur de l’infraction reconnaît les faits qui lui sont reprochés et sa culpabilité."},
+  {terme:"Comparution volontaire",src:"Lexique",def:"Mode de saisine non formaliste du tribunal correctionnel et du tribunal de police, par lequel le prévenu, en général sur avertissement du ministère public, se présente spontanément devant la juridiction répressive, ce qui dispense de la délivrance d’une citation directe."},
+  {terme:"Compétence personnelle ou ratione personae",src:"Lexique",def:"Aptitude d’une juridiction pénale à connaître de certaines infractions en fonction de la qualité personnelle du délinquant (ex. : minorité). Compétence territoriale (ou ratione loci )"},
+  {terme:"Complicit é",src:"Lexique",def:"Situation de celui qui, par aide ou assistance, facilite la préparation ou la consommation d’une infraction, sans en réaliser lui-même les éléments constitutifs, ou encore provoque à une infraction ou donne des instructions pour la commettre. Depuis la réforme du Code pénal, le complice de l’infraction est puni comme auteur."},
+  {terme:"Composition pénale",src:"Lexique",def:"Mesure de compensation ou de réparation proposée par le procureur de la République , tant que l’ action publique n’a pas été mise en mouvement, à une personne majeure qui reconnaît avoir commis un ou plusieurs délits punis à titre de peine principale d’une peine d’amende ou d’une peine d’emprisonnement d’une durée inférieure ou égale à cinq ans, ou une ou plusieurs contraventions connexes."},
+  {terme:"Compte nominatif",src:"Lexique",def:"Compte ouvert par l’administration pénitentiaire où sont inscrites les valeurs pécuniaires des détenus, lesquelles sont divisées en trois parts : la première sur laquelle seules les parties civiles et les créanciers d’aliments peuvent faire valoir leurs droits ; la deuxième, affectée au pécule de libération, qui ne peut faire l’objet d’aucune voie d’exécution ; la troisième, laissée à la libre disposition des détenus."},
+  {terme:"Concours réeld’infractions",src:"Lexique",def:"Situation dans laquelle un délinquant a, par ses agissements, commis plusieurs infractions distinctes, sans qu’elles soient séparées entre elles par une condamnation définitive. Il est autant de responsabilités qu’il est d’infractions réalisées, mais le principe du non-cumul des peines interdit que soient prononcées ou exécutées des peines de même nature au-delà du maximum légal le plus élevé."},
+  {terme:"Condition préalable",src:"Lexique",def:"Circonstance indispensable à la commission d’une infraction, mais sans pour autant en caractériser un élément constitutif au sens précis et étroit du terme. Ainsi en est-il, dans le vol, de l’existence préalable d’une chose susceptible d’appropriation, condition sans laquelle un acte répréhensible de soustraction ne saurait se concevoir. Conditionnalité politique"},
+  {terme:"Confiscation",src:"Lexique",def:"Peine par laquelle est dévolu autoritairement à l’État tout ou partie des biens ou droits incorporels d’une personne (y compris un animal), sauf disposition particulière prévoyant leur destruction ou leur attribution. La confiscation est obligatoire pour les objets qualifiés, par la loi ou le règlement, dangereux ou nuisibles, ou dont la détention est illicite, que ces biens soient ou non la propriété du condamné."},
+  {terme:"Confusion des peines",src:"Lexique",def:"Modalité d’application de la règle du non-cumul des peines , lorsque, à l’occasion de procédures séparées, la personne poursuivie a été reconnue coupable de plusieurs infractions en concours réel ."},
+  {terme:"Consentement de la victime",src:"Lexique",def:"Acceptation par une personne de faits constitutifs d’une infraction pénale à son encontre. Pareil consentement n’a en principe aucune portée justificative et n’exclut donc pas la responsabilité pénale de l’auteur des faits (ex. : euthanasie ). Conservateur/Conservation des hypothèques"},
+  {terme:"Consommation del’infraction",src:"Lexique",def:"Réalisation de l’ infraction dans toutes ses composantes, et par la réunion de ses conditions préalables, et par l’accomplissement de ses éléments constitutifs, et par la production de son résultat. L’infraction consommée se distingue ainsi de l’infraction seulement tentée."},
+  {terme:"Contrainte judiciaire",src:"Lexique",def:"Emprisonnement, utilisé comme moyen de pression, d’une personne majeure, solvable et âgée de moins de 65 ans, ordonné par le juge de l’application des peines, en cas d’inexécution volontaire d’une ou plusieurs condamnations à une peine d’amende prononcées en matière criminelle ou en matière correctionnelle pour un délit puni d’une peine d’emprisonnement, y compris en cas d’inexécution volontaire de condamnations à des amendes fiscales ou douanières."},
+  {terme:"Contratd’emploi pénitentiaire",src:"Lexique",def:"Contrat conclu par une personne détenue souhaitant exercer un travail en détention pour un donneur d’ordre."},
+  {terme:"Contravention",src:"Lexique",def:"Infraction la moins grave après les crimes et les délits, sanctionnée de peines contraventionnelles. Ces peines sont l’amende, certaines peines privatives ou restrictives de droits, des peines complémentaires, et la sanction-réparation . Le taux maximum de l’amende est de 3 000 € pour les personnes physiques , et du quintuple de ce montant pour les personnes morales ."},
+  {terme:"Contrôle administratif et de surveillance",src:"Lexique",def:"Mesures individuelles de sécurité intérieure prescrites par le ministre de l’Intérieur, aux seules fins de prévenir la commission d’actes de terrorisme , contre toute personne à l’égard de laquelle il existe des raisons sérieuses de penser que son comportement constitue une menace d’une particulière gravité pour la sécurité et l’ordre publics. CSI, art. L. 228-1 à L. 228-7. Contrôle budgétair e"},
+  {terme:"Contrôled’identit é",src:"Lexique",def:"Examen, effectué par un OPJ ou un APJ , sur la voie ou dans un lieu public, d’un document de nature à prouver l’identité d’une personne. Il constitue la première étape de l’opération tendant à établir l’identité."},
+  {terme:"Contrôle judiciaire",src:"Lexique",def:"Mesure restrictive de liberté consistant à astreindre la personne mise en examen à se soumettre à une ou plusieurs obligations légalement définies, choisies en vue des nécessités de l’instruction ou à titre de mesure de sûreté. Si ces obligations se révèlent insuffisantes, la personne peut faire l’objet d’une assignation à résidence avec surveillance électronique."},
+  {terme:"Convention judiciaired’intérêt public",src:"Lexique",def:"Accord par lequel, tant que l’action publique n’a pas été mise en mouvement, le procureur de la République propose à une personne morale, mise en cause pour un ou plusieurs délits de corruption, de trafic d’influence, de fraude fiscale, et de leur blanchiment, ainsi que pour des infractions connexes, une ou plusieurs des obligations suivantes : 1°) verser une amende d’intérêt public au Trésor public ; 2°) se soumettre, pour une durée maximale de trois ans et sous le contrôle de l’ Agence françai..."},
+  {terme:"Convention judiciaired’intérêt public environnementale",src:"Lexique",def:"Tant que l’action publique n’a pas été mise en mouvement, le procureur de la République peut proposer à une personne morale mise en cause pour un ou plusieurs délits prévus par le Code de l’environnement ainsi que pour des infractions connexes, à l’exclusion des crimes et délits contre les personnes prévus au livre II du Code pénal, de conclure une convention judiciaire d’intérêt public imposant une ou plusieurs des obligations énumérées à l’article R. 41-1-3, C. pr. pén."},
+  {terme:"Convocation par officier de police judiciaire (COPJ)",src:"Lexique",def:"Dans l’ordonnance n o 45-174 du 2 février 1945 procédure par laquelle un mineur était convoqué par un officier de police judiciaire devant le juge des enfants ou le tribunal pour enfants. Le Code de la justice pénale des mineurs (entrée en vigueur le 30 septembre 2021) n’a pas repris ce mode de saisine, jugé trop proche de la comparution immédiate."},
+  {terme:"Convocation par procès-verbal",src:"Lexique",def:"Procédure simplifiée de poursuite devant le tribunal correctionnel, qui a remplacé le rendez-vous judiciaire, et qui est applicable à des affaires peu complexes pouvant être jugées rapidement. Lorsque les charges réunies sont suffisantes, et que l’affaire est en état d’être jugée, le prévenu est invité par le procureur de la République à comparaître devant le tribunal dans un délai compris entre 10 jours et 6 mois."},
+  {terme:"Correctionnalisation judiciaire",src:"Lexique",def:"Pratique qui consiste, pour les autorités de poursuite ou d’instruction, à déférer à la juridiction correctionnelle ce qui est constitutif d’un crime, par exemple en négligeant l’existence de circonstances aggravantes. La personne mise en examen et la partie civile peuvent s’opposer à cette solution en faisant appel de l’ordonnance de renvoi devant le tribunal correctionnel."},
+  {terme:"Corruption (Délit de)",src:"Lexique",def:"Comportement pénalement incriminé par lequel sont sollicités, agréés ou reçus des offres, promesses, dons ou présents, à des fins d’accomplissement ou d’abstention d’un acte, d’obtention de faveurs ou d’avantages particuliers. La corruption est dite passive lorsqu’elle est le fait du corrompu, elle est dite active lorsqu’elle est le fait du corrupteur."},
+  {terme:"Cosaisine",src:"Lexique",def:"Faculté, pour le président d’un tribunal judiciaire, de désigner un ou plusieurs juges d’instruction pour être adjoints au juge d’instruction saisi, lorsque la gravité ou la complexité de l’affaire le justifie. Les pôles de l’instruction sont seuls compétents pour les informations soumises à une cosaisine."},
+  {terme:"Cour criminelle départementale",src:"Lexique",def:"Juridiction compétente en matière criminelle, mise en place à titre expérimental dans certains départements par la loi n o 2019-222 du 23 mars (art. 63-II et III), et que la loi n o 2021-1729 du 22 décembre généralise à l’ensemble du territoire à compter du 1 er janvier 2023, sous réserve des conclusions d’un comité d’évaluation chargé du suivi de l’expérimentation."},
+  {terme:"Courd’assises",src:"Lexique",def:"Juridiction compétente, en premier ressort ou en appel , pour juger les crimes. Avec la mise en place de la cour criminelle départementale , d’abord à titre expérimental, puis à titre définitif à compter du 1 er janvier 2023, sous réserve d’une évaluation positive, par la loi n o 2021-1729 du 22 décembre 2021, la cour d’assises voit sa compétence réduite aux crimes punis de 30 ans de réclusion criminelle ou de la réclusion criminelle à perpétuité."},
+  {terme:"Courd’assises des mineurs",src:"Lexique",def:"Juridiction spécialisée pour juger les crimes commis par les mineurs âgés d’au moins seize ans. Elle connaît également, lorsqu’ils sont connexes ou forment un ensemble indivisible avec des crimes commis par des mineurs âgés d’au moins 16 ans : 1° des crimes et délits commis par les intéressés avant qu’ils n’aient atteint l’âge de 16 ans ; 2° des crimes et délits commis par les intéressés à compter de leur majorité ; 3° des crimes et délits commis par leurs coauteurs ou complices majeurs."},
+  {terme:"Cour de révision et de réexamen en matière pénale",src:"Lexique",def:"Formation de la Cour de cassation compétente pour statuer, et sur les recours en révision , et sur les demandes de réexamen d’une décision pénale de condamnation faisant suite à un arrêt de la Cour européenne des droits de l’Homme ."},
+  {terme:"Cour de sûreté del’État",src:"Lexique",def:"Ancienne juridiction d’exception , instituée par une loi du 15 janvier 1963, qui était chargée de juger en temps de paix l’ensemble des infractions contre la sûreté intérieure et extérieure de l’État. Elle a été supprimée par la loi n o 81-737 du 4 août 1981. Cour des compte s"},
+  {terme:"Crime",src:"Lexique",def:"Infraction de droit commun ou infraction politique, sanctionnée, pour les personnes physiques , de la réclusion criminelle ou de la détention criminelle à perpétuité ou à temps, voire d’une peine d’amende et de peines complémentaires, et, pour les personnes morales , de l’amende et, dans les cas prévus par la loi, de peines privatives ou restrictives de droits."},
+  {terme:"Crime contrel’espèce humaine",src:"Lexique",def:"Juridiquement distinct du crime contre l’humanité , le crime contre l’espèce humaine renvoie à l’eugénisme et au clonage reproductif."},
+  {terme:"Criminalistique",src:"Lexique",def:"Ensemble de disciplines scientifiques qui contribuent à permettre aux autorités de police et de justice de déterminer les circonstances exactes de la commission d’une infraction et d’en identifier les auteurs (ex. : médecine légale, dactyloscopie, techniques des empreintes digitales, recherche d’ADN…). Criminalité"},
+  {terme:"Criminalité",src:"Lexique",def:"Ensemble des infractions à la loi pénale commises pendant une période de référence (en général l’année) dans un pays déterminé. On distingue la criminalité légale (ensemble des infractions sanctionnées par les juridictions pénales), la criminalité apparente (ensemble des faits apparemment constitutifs d’infractions connus des autorités publiques), et la criminalité réelle (ensemble des infractions commises, en incluant, par une évaluation, celles demeurées inconnues)."},
+  {terme:"Criminalité et délinquance organisées",src:"Lexique",def:"Ensemble des crimes et délits caractérisés par une préparation minutieuse, avec de multiples intervenants, et, le plus souvent, à dimension internationale. La liste en est donnée par les articles 706-73, 706-73-1 et 706-74 du Code de procédure pénale, et les infractions visées connaissent des modalités renforcées d’enquête, de poursuite, d’instruction et de jugement. Criminel tient le civil en état (Le)"},
+  {terme:"Criminologie",src:"Lexique",def:"Au sens étroit : ensemble des doctrines et recherches ayant pour objet de déterminer les causes de la criminalité (criminogenèse). Au sens large, étude scientifique du phénomène criminel dans ses 3 composantes : la norme pénale, le crime, la réaction sociale. Crise ministérielle"},
+  {terme:"Culpabilit é",src:"Lexique",def:"Situation d’une personne qui se voit reprocher l’élément moral d’une infraction, soit au titre de l’intention, par hostilité aux valeurs sociales protégées, soit au titre de la non-intention, par indifférence auxdites valeurs. La culpabilité suppose acquise l’ imputabilité ."},
+  {terme:"Cybercriminalité",src:"Lexique",def:"Ensemble des infractions relatives aux technologies d’information et de communication. L’informatique constitue d’abord le support par lequel le délit est commis (diffusion de contenus illicites à caractère raciste, antisémite ou encore de nature pédopornographique, contrefaçons d’œuvres audiovisuelles, etc.)."},
+  {terme:"Cyberharcèlement",src:"Lexique",def:"Nom communément donné au harcèlement lorsqu’il emprunte les voies des technologies de l’information et de la communication. De manière générale, il est sanctionné par les dispositions relatives au harcèlement moral ou au harcèlement sexuel , voire au harcèlement scolaire . Mais il peut également prendre la forme d’une atteinte à la vie privée ."},
+  {terme:"Déboutéd’opposition",src:"Lexique",def:"Décision prise par le tribunal, lorsque, après une opposition formée contre une décision par défaut , l’opposant, bien que cité ou avisé de la date de la nouvelle audience, ne comparait pas. Cette décision confère toute sa valeur à la première décision rendue par défaut. Débrayage"},
+  {terme:"Déchéance professionnelle",src:"Lexique",def:"Sanction consistant à interdire au condamné l’exercice d’une activité professionnelle, à titre de peine principale (alternative à l’emprisonnement), de peine complémentaire ou de peine accessoire . Depuis la réforme du Code pénal, du fait de la disparition des peines accessoires, aucune déchéance ne peut être appliquée si la juridiction ne l’a expressément prononcée."},
+  {terme:"Déclaration de réussite éducative",src:"Lexique",def:"Le juge des enfants ou le tribunal pour enfants , peut prévoir une déclaration de réussite éducative à l’égard du mineur qui, dans le cadre d’une mise à l’épreuve éducative, a pleinement respecté les obligations qui lui étaient imposées. Cette déclaration ne constitue pas le premier terme de la récidive et elle peut ne pas figurer au casier judiciaire."},
+  {terme:"Déclaration de soupçon",src:"Lexique",def:"Déclaration à laquelle sont tenus les organismes financiers et certains professionnels (notaires, avocats, antiquaires…), ayant pour objet de porter à la connaissance d’un service placé sous l’autorité du ministre chargé de l’Économie et du ministre chargé du Budget, dit TRACFIN (Traitement du renseignement et action contre les circuits financiers clandestins), les opérations et sommes soupçonnées d’être d’origine illicite et d’être destinées à du blanchiment d’argent ou au financement du terror..."},
+  {terme:"Défaut en matière criminelle",src:"Lexique",def:"Procédure criminelle destinée au jugement d’un accusé absent sans excuse valable à l’ouverture de l’audience. Il en est de même lorsque l’absence de l’accusé est constatée au cours des débats, et qu’il n’est pas possible de les suspendre jusqu’à son retour."},
+  {terme:"Défèrement",src:"Lexique",def:"Procédure consistant à traduire une personne appréhendée ou gardée à vue devant l’autorité judiciaire compétente (procureur de la République, juge des libertés et de la détention…). Défiance constructiv e"},
+  {terme:"Délateur",src:"Lexique",def:"Qualification de la personne qui a tenté de commettre un crime ou un délit et qui a permis, en avertissant l’autorité administrative ou judiciaire, d’éviter la réalisation de l’infraction, et le cas échéant, d’identifier les autres auteurs ou complices. Dans les cas prévus par la loi, le délateur bénéficie d’une exemption de peines."},
+  {terme:"Délégué du procureur",src:"Lexique",def:"Personne physique ou association habilitée par le procureur pour le représenter avec pouvoir de régler des dossiers de faible gravité pénale. Son rôle consiste à délester les services du Parquet. Il peut prononcer plusieurs mesures au titre de la sanction pénale. On en comptait 869 au 1 er janvier 2021."},
+  {terme:"Délinquant primaire",src:"Lexique",def:"Auteur ou complice d’une infraction pénale, qui ne se trouve pas dans un état de récidive . Déli t"},
+  {terme:"Délit",src:"Lexique",def:"1 o Au sens large, le délit est synonyme d’ infraction . 2 o Au sens strict, le délit est une infraction dont l’auteur est puni de peines correctionnelles."},
+  {terme:"Délit-contravention",src:"Lexique",def:"Infraction dont le caractère hybride la rattache à la fois aux délits et aux contraventions. Elle constitue un délit par les peines dont elle est assortie, mais reste proche des contraventions par le régime applicable, tant en raison de son caractère purement matériel, qui la rend indifférente à l’intention ou à la faute, que de la possibilité de cumuler les peines encourues (délits en matière de chasse, d’urbanisme, d’environnement…)."},
+  {terme:"Délitd’initiés",src:"Lexique",def:"Délits attentatoires à la transparence des marchés financiers, consistant pour des personnes disposant, notamment à l’occasion de l’exercice de leur profession ou de leurs fonctions, d’informations privilégiées sur les perspectives d’évolution de titres, d’instruments financiers ou d’actifs négociés ou admis sur un marché réglementé, de réaliser ou de permettre de réaliser, directement ou indirectement, une ou plusieurs opérations avant que le public ait connaissance de ces informations, ou enco..."},
+  {terme:"Délit de fuite",src:"Lexique",def:"Infraction consistant dans le fait, pour tout conducteur d’un véhicule ou engin terrestre, fluvial ou maritime, sachant qu’il vient de causer ou d’occasionner un accident, de ne pas s’arrêter et de tenter ainsi d’échapper à la responsabilité pénale ou civile qu’il peut avoir encourue."},
+  {terme:"Délit non intentionnel",src:"Lexique",def:"Délit dont l’élément moral consiste en une faute plus ou moins prononcée. Selon l’article 121-3 C. pén., il s’agit : - soit d’une imprudence, négligence ou manquement à une obligation de prudence ou de sécurité prévue par la loi ou le règlement, s’il est établi que l’auteur des faits n’a pas accompli les diligences normales compte tenu, le cas échéant, de la nature de ses missions ou de ses fonctions, de ses compétences ainsi que du pouvoir et des moyens dont il disposait ; - soit d’une violatio..."},
+  {terme:"Désertion",src:"Lexique",def:"Fait pour tout militaire de : 1 o ) s’évader, s’absenter sans autorisation, refuser de rejoindre sa formation de rattachement ou ne pas s’y présenter à l’issue d’une mission, d’une permission ou d’un congé ; 2 o ) mis en route pour rejoindre une autre formation de rattachement, ne pas s’y présenter ; 3 o ) se trouver absent sans autorisation au moment du départ du bâtiment ou de l’aéronef auquel il appartient ou à bord duquel il est embarqué."},
+  {terme:"Détention à domicile sous surveillance électronique",src:"Lexique",def:"Peine qui peut être prononcée lorsqu’un délit est puni d’un emprisonnement, en lieu et place de ce dernier. La durée de ce type de détention est comprise entre 15 jours et 6 mois, sans pouvoir excéder la durée de la peine encourue. Ses modalités d’exécution sont fixées par la juridiction et contrôlées par le JAP du lieu d’assignation."},
+  {terme:"Détention criminelle",src:"Lexique",def:"Peine criminelle privative de liberté consistant dans l’incarcération d’un condamné à un crime de nature politique avec un régime pénitentiaire différent de celui applicable aux condamnés de droit commun. Ce régime est nécessairement plus favorable compte tenu de la nature même de l’infraction commise."},
+  {terme:"Détention provisoire",src:"Lexique",def:"Mesure d’incarcération d’un mis en examen pendant l’information judiciaire, ou d’un prévenu dans le cadre de la comparution immédiate. De caractère exceptionnel, elle ne peut être prise que dans des cas déterminés et par un magistrat du siège après un débat contradictoire au cours duquel il entend les réquisitions du ministère public, puis les observations du mis en examen et le cas échéant celles de son conseil. Des règles spécifiques sont prévues pour la détention provisoire des mineurs."},
+  {terme:"Diffamation",src:"Lexique",def:"Allégation ou imputation d’un fait, constitutive d’un délit ou d’une contravention selon son caractère public ou non, qui porte atteinte à l’honneur ou à la considération d’une personne ou d’un corps constitué."},
+  {terme:"Diffusion",src:"Lexique",def:"Peine complémentaire pouvant être prononcée par le tribunal pour certains crimes ou délits, consistant à procéder à la publication de la décision de condamnation. Les frais afférents sont à la charge de la personne condamnée. Le support de la publication ( Journal officiel ou tout autre support de presse, y compris de nature électronique), est désigné par la juridiction elle-même."},
+  {terme:"Diffusion et partage del’information opérationnelle",src:"Lexique",def:"Mise en œuvre, par le ministre de l’Intérieur, des traitements de données à caractère personnel afin de faciliter la diffusion et le partage d’informations opérationnelles détenues par les différents services ou unités de la police ou de la gendarmerie. Décr. n o 2014-187 du 20 févr. 2014, art. 1. Dignité de la personne humain e"},
+  {terme:"Discernement",src:"Lexique",def:"1 o Faculté de comprendre la portée de ses actes, qui conditionne la responsabilité pénale au titre de l’imputabilité. Les mineurs de moins de treize ans sont présumés ne pas être capables de discernement, mais ce qui n’interdit pas leur audition au cours de l’enquête ou sur commission rogatoire dans le cadre d’une audition libre ou d’une retenue. Les mineurs âgés d’au moins treize ans sont présumés capables de discernement."},
+  {terme:"Discrédit",src:"Lexique",def:"Incrimination frappant le fait de dénigrer publiquement, par actes, paroles, écrits ou images de toute nature, un acte ou une décision juridictionnelle, dans des conditions de nature à porter atteinte à l’autorité de la justice ou à son indépendance."},
+  {terme:"Dispense de peine",src:"Lexique",def:"Mesure par laquelle le juge correctionnel ou de police qui a retenu la culpabilité du prévenu décide cependant de ne prononcer aucune sanction contre lui lorsqu’il lui apparaît que son reclassement est acquis, que le dommage est réparé, et que le trouble social occasionné par l’infraction a cessé."},
+  {terme:"Dissimulation (del’infraction)",src:"Lexique",def:"Est dissimulée l’infraction dont l’auteur accomplit délibérément toute manœuvre caractérisée tendant à en empêcher la découverte."},
+  {terme:"Dissimulation du visage",src:"Lexique",def:"1 o Nul ne peut, dans l’espace public, porter une tenue destinée à dissimuler son visage, sous peine d’une contravention de deuxième classe. De même, le fait pour toute personne d’imposer à une ou plusieurs autres personnes de dissimuler leur visage par menace, violence, contrainte, abus d’autorité ou abus de pouvoir, en raison de leur sexe, est puni d’un an d’emprisonnement et de 30 000 € d’amende."},
+  {terme:"Divulgation",src:"Lexique",def:"Fait de révéler une information de nature à porter atteinte à l’honneur ou à la considération d’une personne, afin d’obtenir soit une signature, un engagement ou une renonciation, soit la révélation d’un secret, soit la remise de fonds, de valeurs ou d’un bien quelconque. Cette révélation est constitutive du délit de chantage ; la simple menace de révéler les mêmes faits dans le même but est traitée en chantage par le Code pénal."},
+  {terme:"Divulgationd’informations aux finsd’exposition à un risque",src:"Lexique",def:"Est puni le fait d’exposer directement autrui à un risque immédiat de mort ou de blessure de nature à entraîner une mutilation ou une infirmité permanente par la violation manifestement délibérée d’une obligation particulière de prudence ou de sécurité imposée par loi ou le règlement. Des circonstances aggravantes sont prévues à raison des fonctions, de la vulnérabilité, ou de l’âge de la victime visée."},
+  {terme:"Dopage",src:"Lexique",def:"Infraction correctionnelle consistant à utiliser au cours des compétitions et manifestations organisées ou autorisées par des fédérations sportives ou en vue d’y participer, des substances ou procédés de nature à modifier artificiellement ses capacités ou à masquer l’utilisation de substances ou procédés ayant ces mêmes propriétés. Dossier individuel du détenu"},
+  {terme:"Dossier individuel du détenu",src:"Lexique",def:"Pour tout détenu, il est constitué au greffe de l’établissement pénitentiaire un dossier individuel qui suit l’intéressé. Il contient les renseignements utiles à déterminer l’existence d’un éventuel risque suicidaire. Il doit contenir aussi les informations relatives à l’inscription de la personne détenue sur les listes électorales et à l’exercice de son droit de vote. Il doit être tenu à jour."},
+  {terme:"Dossier pénal numérique (DPN)",src:"Lexique",def:"Traitement de données à caractère personnel mis en place au sein des juridictions dans le but de faciliter le travail des acteurs de la justice pénale et de fluidifier les échanges d’information et l’accès au dossier de procédure, dans le respect des règles prévues aux articles R. 249-9 s. du Code de procédure pénale. Dossier unique de personnalit é"},
+  {terme:"Dossier unique de personnalit é",src:"Lexique",def:"Dossier constitué par le juge des enfants, qui connaît habituellement le mineur, lorsque celui-ci fait l’objet d’une mesure de sûreté, d’une mesure éducative ou d’une mesure d’investigation. Il est également ouvert par le juge des enfants lorsqu’il est saisi de l’application d’une peine ou d’une mesure éducative prononcée par une juridiction de jugement pour mineurs. Il est aussi alimenté par le juge d’instruction saisi d’un dossier concernant un mineur."},
+  {terme:"Double peine",src:"Lexique",def:"Expression non juridique, issue du langage courant, qui caractérise la situation d’un étranger résidant en France qui, ayant commis une infraction pénale sur le territoire français, a fait l’objet d’une peine de prison ou d’amende, et voit cette peine « doublée » par une mesure d’éloignement constituée, soit par l’interdiction du territoire français (peine complémentaire prononcée par le juge pénal), soit par l’expulsion (mesure de police administrative prononcée par le ministre de l’Intérieur o..."},
+  {terme:"Doute (Bénéfice du)",src:"Lexique",def:"Principe général de procédure pénale qui oblige le juge à prononcer une relaxe ou un acquittement, dès lors qu’une incertitude persiste sur les faits objet des poursuites, sur la réalisation des conditions de l’infraction, ou encore sur la participation des personnes mises en cause."},
+  {terme:"Échec àl’exécution de la loi",src:"Lexique",def:"Infraction consistant de la part d’une personne dépositaire de l’autorité publique et agissant dans l’exercice de ses fonctions, à prendre des mesures destinées à faire échec à l’exécution de la loi. Cette infraction peut être commise par un fonctionnaire qui agit de façon isolée et à titre personnel alors que l’ancien texte se référait à la notion de « coalition » qui supposait une action concertée entre plusieurs individus."},
+  {terme:"Écrou",src:"Lexique",def:"Registre constitué de feuillets mobiles constatant officiellement l’entrée et la sortie d’un prisonnier dans une prison et établissant ainsi à tout instant la position pénitentiaire exacte de ce détenu."},
+  {terme:"Effraction",src:"Lexique",def:"Mode d’action consistant dans le forcement, la dégradation ou la destruction de dispositifs de fermeture ou de clôture. Il s’agit d’une circonstance aggravante de certaines infractions."},
+  {terme:"Électa una via, non datur recursus ad alteram",src:"Lexique",def:"« Une voie ayant été choisie, on ne peut en adopter une autre ». Adage traditionnel, aujourd’hui consacré dans le Code de procédure pénale, qui, afin de parer à des chantages éventuels, interdit à la victime d’une infraction ayant exercé son action en réparation devant la juridiction civile compétente, de se raviser par la suite afin de la porter devant la juridiction répressive."},
+  {terme:"Élément constitutif del’infraction",src:"Lexique",def:"Composante, matérielle ou psychologique, du comportement puni par la loi. C’est la réunion des éléments constitutifs de l’infraction qui permet l’application de la loi."},
+  {terme:"Embuscade",src:"Lexique",def:"Délit consistant à attendre un certain temps et dans un lieu déterminé un fonctionnaire de la police nationale, un militaire de la gendarmerie, un membre du personnel de l’administration pénitentiaire ou toute autre personne dépositaire de l’autorité publique, ainsi qu’un sapeur-pompier civil ou militaire ou un agent d’un exploitant de réseau de transport public de voyageurs, dans le but, caractérisé par un ou plusieurs faits matériels, de commettre à son encontre, à l’occasion de l’exercice de ..."},
+  {terme:"Empoisonnement",src:"Lexique",def:"Fait d’attenter intentionnellement à la vie d’autrui par l’emploi ou l’administration de substances de nature à entraîner la mort."},
+  {terme:"Emprisonnement",src:"Lexique",def:"Peine privative de liberté, de nature correctionnelle, consistant dans l’incarcération du condamné, pendant un temps fixé par le juge dans les limites prévues par la loi. Les juges ne peuvent plus prononcer une peine d’emprisonnement ferme inférieure ou égale à 1 mois. Les peines inférieures ou égales à 6 mois doivent faire l’objet des mesures d’aménagement prévues par la loi, sauf impossibilité résultant de la situation personnelle du condamné (C. pén., art. 139-19)."},
+  {terme:"Encellulement individuel",src:"Lexique",def:"Les personnes prévenues sont place en cellule individuelle. Toute personne détenue victime d’un acte de violence caractérisé commis par une ou plusieurs personnes codétenues bénéficie prioritairement d’un encellulement individuel."},
+  {terme:"Enquête de flagrance",src:"Lexique",def:"Enquête particulière applicable aux crimes et délits qui sont en train d’être commis (flagrance au sens strict), qui viennent d’être commis ou dont l’auteur soupçonné est poursuivi par la clameur publique ou trouvé en possession d’objets ou d’indices laissant penser qu’il a participé au crime ou au délit. Elle donne à la police judiciaire, en raison de l’actualité de l’infraction, des pouvoirs plus étendus que pour l’ enquête préliminaire ."},
+  {terme:"Enquête de personnalité",src:"Lexique",def:"Enquête de caractère psychologique, familial et social sur la situation d’un mis en examen, obligatoire en matière criminelle et facultative en matière de délit."},
+  {terme:"Enquête de police",src:"Lexique",def:"Ensemble des opérations d’investigations menées préalablement à la saisine des juridictions compétentes par les officiers et agents de police judiciaire, en vue de constater les infractions à la loi pénale, d’en rassembler les preuves et d’en rechercher les auteurs. Enquête européenne"},
+  {terme:"Enquête européenne",src:"Lexique",def:"Enquête demandée par une décision de justice émanant d’un État membre et adressée à un autre État membre pour réaliser, dans un certain délai, sur son territoire, des investigations tendant à l’obtention d’éléments de preuve relatifs à une infraction pénale ou à la communication d’éléments de preuve déjà en sa possession. Elle peut servir aussi à la préservation des preuves ou à l’obtention du transfèrement temporaire d’une personne détenue pour les besoins d’une enquête pénale"},
+  {terme:"Enquête préliminaire",src:"Lexique",def:"Enquête diligentée d’office ou à la demande du parquet par la police ou la gendarmerie avant l’ouverture de toute information et permettant au ministère public d’être éclairé sur le bien-fondé d’une poursuite."},
+  {terme:"Enquête sous pseudonyme",src:"Lexique",def:"Dans le but de constater les infractions mentionnées aux articles 706-72 et 706-73 C. pr. pén. et, lorsqu’elles sont commises par un moyen de communication électronique, d’en rassembler les preuves et d’en rechercher les auteurs, les officiers et agents de police judiciaire peuvent, sous certaines conditions, procéder à des actes limitativement énumérés, sous le contrôle du procureur de la République ou du juge d’instruction, sans en être pénalement responsables (par ex."},
+  {terme:"Enregistrement audiovisuel des auditions de mineurs",src:"Lexique",def:"Les interrogations des mineurs placés en garde à vue ou en retenue font l’objet d’un enregistrement audiovisuel. En l’absence d’enregistrement et en tout état de cause, aucune condamnation ne peut être prononcée sur le seul fondement des déclarations du mineur si celles-ci sont contestées. Aucune copie de l’enregistrement n’est délivrée aux parties et aux avocats. La diffusion de l’enregistrement ou d’une copie est assortie d’une peine d’un an d’emprisonnement et de 15 000 € d’amende."},
+  {terme:"Entremise",src:"Lexique",def:"Le fait d’intervenir entre un ou des parents désireux d’abandonner leur enfant et un candidat à l’adoption afin de faciliter cette opération est une infraction prévue à l’article 227-12 du Code pénal. Il en est de même de l’entremise entre des parents et une femme qui accepte de porter l’enfant et de leur remettre."},
+  {terme:"Équipes communesd’enquête",src:"Lexique",def:"Elles sont constituées, soit lorsqu’il y a lieu d’effectuer, dans le cadre d’une procédure française, des enquêtes complexes impliquant la mobilisation d’importants moyens concernant d’autres États membres, soit lorsque plusieurs États membres effectuent des enquêtes relatives à des infractions exigeant une action coordonnée et concertée entre les États membres concernés."},
+  {terme:"Escroquerie",src:"Lexique",def:"Délit consistant dans le fait, soit par l’usage d’un faux nom ou d’une fausse qualité, soit par l’abus d’une qualité vraie, soit par l’emploi de manœuvres frauduleuses, de tromper une personne physique ou morale et de la déterminer ainsi, à son préjudice ou au préjudice d’un tiers, à remettre des fonds, des valeurs ou un bien quelconque, à fournir un service ou à consentir un acte opérant obligation ou décharge."},
+  {terme:"Espionnage",src:"Lexique",def:"Ensemble d’infractions commises par une personne autre qu’un Français ou un militaire au service de la France consistant à renforcer les informations d’une puissance étrangère ou à affaiblir les intérêts de la nation. Commises par un Français ou un militaire au service de la France, ces mêmes infractions sont qualifiées de trahison ."},
+  {terme:"État dangereux",src:"Lexique",def:"Prédisposition à la délinquance d’un individu dont la situation ne constitue pas toujours une atteinte à l’ordre social."},
+  {terme:"Éthique biomédicale",src:"Lexique",def:"Ensemble des règles déontologiques et juridiques qui dominent l’activité de la recherche médicale et qui tendent à prévenir les crimes contre l’espèce humaine, notamment sous forme d’eugénisme ou de clonage reproductif."},
+  {terme:"Eugénisme",src:"Lexique",def:"Pratique tendant à l’organisation de la sélection des personnes, constitutive d’un crime contre l’espèce humaine."},
+  {terme:"Exception préjudicielle",src:"Lexique",def:"Synonyme de question préjudicielle . Exception préliminaire"},
+  {terme:"Excision",src:"Lexique",def:"Au sens général, retrait d’une ou plusieurs parties de tissus organiques, généralement lors d’une intervention chirurgicale. Au sens strict, mutilation génitale féminine non motivée par des raisons médicales (ablation du clitoris, parfois doublée d’une infibulation), pratiquée dans certains pays du monde, sur les petites ou jeunes filles avant l’âge de quinze ans, au nom de la tradition."},
+  {terme:"Exécution des peines",src:"Lexique",def:"Des principes généraux gouvernent l’exécution des peines : ils sont relatifs aux droits des personnes incarcérées et à ceux des victimes. L’autorité judiciaire est tenue de garantir l’intégralité de ces droits tout au long de l’exécution de la peine quelles qu’en soient les modalités."},
+  {terme:"Exemption de peine",src:"Lexique",def:"1 o Au sens large , hypothèse dans laquelle la déclaration de culpabilité à l’encontre d’un prévenu ne se double pas du prononcé d’une peine. Elle est alors illustrée par la dispense de peine , telle que prévue et aménagée par l’article 132-59 du Code pénal."},
+  {terme:"Exhibition sexuelle",src:"Lexique",def:"Fait d’imposer à la vue d’autrui la commission explicite d’un acte sexuel réel ou simulé, dans un lieu accessible au regard du public et sans que l’exposition d’une partie dénudée du corps soit nécessaire."},
+  {terme:"Expérimentation sur la personne humaine",src:"Lexique",def:"Délit consistant à pratiquer ou à faire pratiquer sur une personne une recherche impliquant la personne humaine sans avoir recueilli le consentement libre, éclairé et exprès de l’intéressé, des titulaires de l’autorité parentale ou du tuteur. Mais l’infraction n’est pas applicable à l’examen des caractéristiques génétiques d’une personne, ou à son identification par ses empreintes génétiques, effectué à des fins de recherche scientifique."},
+  {terme:"Extorsion",src:"Lexique",def:"Crime ou délit consistant à obtenir par violence, menace de violences ou contrainte, soit une signature, un engagement ou une renonciation, soit la révélation d’un secret, soit la remise de fonds, de valeurs ou d’un bien quelconque. L’infraction correspond au chantage de l’ancien Code pénal."},
+  {terme:"Faits justificatifs",src:"Lexique",def:"Circonstances matérielles ou qualités personnelles intervenant comme des causes d’irresponsabilité pénale par la neutralisation du caractère délictueux des actes commis (ordre de la loi, légitime défense, état de nécessité, immunités…)."},
+  {terme:"Faux témoignage",src:"Lexique",def:"Délit consistant à mentir sous serment devant toute juridiction ou devant un officier de police judiciaire agissant en exécution d’une commission rogatoire. Le faux témoin est exempt de peine s’il a rétracté spontanément son témoignage avant la décision mettant fin à la procédure rendue par la juridiction d’instruction ou par la juridiction de jugement."},
+  {terme:"Fermetured’établissement",src:"Lexique",def:"Sanction complémentaire analysée comme une mesure de sûreté et encourue pour certains crimes ou délits se traduisant par l’interdiction d’exercer, dans l’établissement considéré, l’activité dans le cadre de laquelle l’infraction a été commise."},
+  {terme:"Feuille de motivation",src:"Lexique",def:"Feuille annexée à un arrêt rendu par une cour d’assises et rédigée par un magistrat professionnel pour préciser les principaux éléments à charge évoqués au cours des débats qui ont convaincu la cour d’assises de la culpabilité de l’accusé et justifient sa condamnation."},
+  {terme:"Fiched’antécédents",src:"Lexique",def:"Type de fichier de la police judiciaire contenant toute information à caractère personnel recueillie au cours d’une enquête, concernant les auteurs présumés ou les victimes. Limité à certains types de délits ou crimes, ce fichier est placé sous le contrôle du procureur de la République."},
+  {terme:"Fichier informatique",src:"Lexique",def:"Recueil d’informations nominatives, relatives aux personnes, traité par les procédés informatiques. Même commis par négligence, le fait de procéder ou faire procéder à des traitements d’informations nominatives sans avoir respecté les conditions légales prévues à cet effet est une infraction prévue à l’article 226-16 du Code pénal (v. pour les autres incriminations, C. pén., art. 226-17 s.)."},
+  {terme:"Fichiersd’analyse sérielle",src:"Lexique",def:"Fichiers qui permettent de rassembler les preuves et d’identifier les auteurs grâce à l’établissement de liens entre les individus, les événements ou les infractions, des crimes et délits présentant un caractère sériel."},
+  {terme:"Filature",src:"Lexique",def:"Action consistant de la part des OPJ et APJ à accomplir des actes de surveillance et de suivi (filature) d’une personne suspectée d’avoir commis une infraction. La légalité de ce procédé qui participe à la recherche de la preuve et admis par la chambre criminelle de la Cour de cassation est soumise pour son objet et pour les procédés utilisés aux dispositions de l’article 706-80 du Code de procédure pénale. Filial e"},
+  {terme:"Filouterie",src:"Lexique",def:"Fait, par une personne qui sait être dans l’impossibilité absolue de payer ou qui est déterminée à ne pas payer, de se faire servir des boissons ou aliments, ou d’obtenir certains services."},
+  {terme:"FINIAD A",src:"Lexique",def:"Fichier comportant des données à caractère personnel relatives aux personnes interdites d’acquisition et de détention d’armes. La finalité de ce fichier réside dans la mise en œuvre d’un suivi au niveau national."},
+  {terme:"Flagrant délit",src:"Lexique",def:"Crime ou délit qui se commet actuellement, ou qui vient de se commettre. L’infraction relève alors de modalités d’enquête particulières ( enquête de flagrance ), et, s’il s’agit d’un délit, peut donner lieu à comparution immédiate devant le tribunal correctionnel."},
+  {terme:"Fouille",src:"Lexique",def:"Modalité de la perquisition qui s’effectue ailleurs que dans un immeuble, sur une personne (à l’aéroport par ex.) ou dans un véhicule, ou même dans certains cas, dans des bagages. Aux fins de recherche et de poursuite de l’infraction prévue à l’article 431-10, C."},
+  {terme:"Fractionnement de la peine",src:"Lexique",def:"En matière correctionnelle, la juridiction peut décider, pour un motif d’ordre médical, familial, professionnel ou social, que l’emprisonnement prononcé pour une durée de 2 ans, ou, si la personne est en état de récidive légale, pour une durée égale ou inférieure à un an au plus, sera, pendant une période ne pouvant excéder 4 ans, exécuté par fractions, aucune d’entre elles ne pouvant être inférieure à 2 jours."},
+  {terme:"Gallodrome",src:"Lexique",def:"Lieu où sont organisés des combats de coqs. Parce que de tels combats ne sont autorisés que dans les localités où une tradition ininterrompue peut être établie, toute création d’un nouveau gallodrome est punie des peines encourues pour sévices graves ou actes de cruauté envers les animaux."},
+  {terme:"Garde à vue",src:"Lexique",def:"Mesure de contrainte par laquelle un officier de police judiciaire retient dans les locaux de la police, d’office ou sur instruction du procureur de la République, pendant une durée légalement déterminée et sous le contrôle de l’autorité judiciaire, toute personne à l’encontre de laquelle il existe une ou plusieurs raisons plausibles de soupçonner qu’elle a commis ou tenté de commettre un crime ou un délit puni d’une peine emprisonnement. Elle doit préserver les droits de la défense ."},
+  {terme:"Géolocalisation",src:"Lexique",def:"Moyen technique permettant de localiser en temps réel, sur l’ensemble du territoire national, une personne à son insu, un véhicule ou tout autre objet, sans le consentement de son propriétaire ou de son possesseur. L’opération doit être justifiée par les nécessités d’une enquête ou d’une instruction relative à un crime ou à un délit punis d’au moins cinq ans d’emprisonnement pour les délits d’atteinte aux biens et de trois ans pour les délits d’atteinte aux personnes."},
+  {terme:"Graffitis",src:"Lexique",def:"Inscriptions, signes ou dessins, sans autorisation préalable, sur les façades, les véhicules, les voies publiques ou le mobilier urbain, dont la réalisation est constitutive de destructions, dégradations ou détériorations légères, pénalement sanctionnées par le minimum de l’amende correctionnelle."},
+  {terme:"Grivèlerie",src:"Lexique",def:"Fait pour une personne qui sait être dans l’impossibilité absolue de payer ou qui est déterminée à ne pas payer, de se faire servir des boissons ou des aliments dans un établissement en vendant, ou de se faire attribuer et d’occuper effectivement une ou plusieurs chambres dans un établissement louant des chambres lorsque l’occupation n’a pas excédé dix jours, ou de se faire servir des carburants ou lubrifiants dont elle fait remplir tout ou partie des réservoirs d’un véhicule par des professionn..."},
+  {terme:"Guet-apens",src:"Lexique",def:"Fait d’attendre un certain temps une ou plusieurs personnes dans un lieu déterminé pour commettre à leur encontre une ou plusieurs infractions. Il devient une circonstance aggravante relativement à certaines infractions de violence prévues à l’article 222-14-1 du Code pénal."},
+  {terme:"Handiphobie",src:"Lexique",def:"Circonstance aggravante d’une infraction lorsque des atteintes volontaires sont commises sur une personne particulièrement vulnérable en raison de son handicap."},
+  {terme:"Harcèlement sexuel",src:"Lexique",def:"1 o Fait d’imposer à une personne de façon répétée, des propos ou comportements à connotation sexuelle ou sexiste qui, soit portent atteinte à sa dignité en raison de leur caractère dégradant ou humiliant, soit créent à son encontre une situation intimidante, hostile ou offensante."},
+  {terme:"Homicide",src:"Lexique",def:"Fait de donner la mort à autrui, constitutif de meurtre lorsqu’il est intentionnel et d’homicide involontaire lorsqu’il ne l’est pas."},
+  {terme:"Hooliganisme",src:"Lexique",def:"Fait de se livrer à des actes de vandalisme ou des actes de violence lors de manifestations sportives et qui tombe sous le coup des incriminations de droit commun. Les auteurs qui s’attaquent aux juges et aux arbitres, considérés comme chargés d’une mission de service public par l’article L. 223-2 du Code du sport, ou qui menacent de le faire encourent les sanctions prévues à l’article 433-3 du Code pénal. Horaire individualisé"},
+  {terme:"Identité judiciaire",src:"Lexique",def:"Service et activité de police judiciaire, ayant pour but l’identification des personnes, ainsi que le traitement des traces et indices. L’utilisation des moyens d’identité judiciaire aux fins d’établir l’identité d’une personne est réglementée par la loi."},
+  {terme:"Immobilisation de véhicule",src:"Lexique",def:"Peine privative ou restrictive de droits, consistant à priver temporairement le condamné de l’usage d’un ou de plusieurs véhicules lui appartenant, pour une durée fixée par le juge dans le respect d’un maximum légal."},
+  {terme:"Immunit é",src:"Lexique",def:"1 o Fait justificatif (débattu en doctrine) tiré de la liberté d’expression des députés et sénateurs ( immunités parlementaires ), ou des intervenants devant un tribunal ( immunité judiciaire ), qui interdit toute poursuite en diffamation, injure ou outrage ."},
+  {terme:"Imputabilit é",src:"Lexique",def:"Fondement moral de la responsabilité pénale, reposant sur le discernement et le libre arbitre. Sont en conséquence des causes de non-imputabilité, et donc d’irresponsabilité, les troubles psychiques ou neuro-psychiques et la contrainte."},
+  {terme:"Imsi catcher",src:"Lexique",def:"Technique qui consiste en l’utilisation par les officiers de police judiciaire d’un appareil ou d’un dispositif permettant l’identification d’un équipement terminal ou du numéro d’abonnement de son utilisateur ainsi que les données relatives à la localisation d’un équipement terminal utilisé. Cette technique peut servir aussi à intercepter des correspondances émises ou reçues par un équipement terminal."},
+  {terme:"Incapacités et déchéances",src:"Lexique",def:"Peines complémentaires encourues pour certains crimes ou délits, consistant dans l’interdiction de droits civiques, civils et de famille."},
+  {terme:"Incarcération provisoire",src:"Lexique",def:"Mesure de détention de 4 jours au maximum susceptible d’être prononcée par un juge d’instruction lorsque la chambre d’examen des mises en détention provisoire ne peut être réunie immédiatement ou lorsque la personne mise en examen demande un délai pour préparer sa défense. Elle peut aussi être prononcée par le juge des libertés et de la détention ainsi que par le Président de la chambre de l’instruction ou par un conseiller désigné par lui."},
+  {terme:"Incitation pornographique",src:"Lexique",def:"Fait pour un majeur d’inciter un mineur, par un moyen de communication électronique, à commettre tout acte de nature sexuelle, soit sur lui-même, soit sur ou avec un tiers, y compris si cette incitation n’est pas suivie d’effet."},
+  {terme:"Incrimination",src:"Lexique",def:"Acte législatif ou réglementaire par lequel est définie une infraction. Incubateur d’entreprise s"},
+  {terme:"In dubio pro reo",src:"Lexique",def:"« Dans le doute, en faveur de l’accusé ». Maxime latine signifiant que le doute profite à l’accusé. Inéligibilit é"},
+  {terme:"Infanticide",src:"Lexique",def:"Meurtre d’un enfant nouveau-né, qui était spécialement incriminé avant la réforme du Code pénal, et qui rentre aujourd’hui dans la circonstance aggravante plus générale du meurtre commis sur un mineur de 15 ans."},
+  {terme:"Infiltration",src:"Lexique",def:"Mode d’établissement de faits infractionnels qui consiste en la surveillance par un agent officiel (de la police judiciaire ou des douanes) de personnes suspectées d’avoir commis un crime ou un délit en se faisant passer auprès de ces personnes pour un coauteur, un complice ou un receleur. Cette pratique est subordonnée à l’autorisation du procureur de la République ou, après avis préalable de ce dernier, à celle du juge d’instruction saisi."},
+  {terme:"Information (Droit àl’ )",src:"Lexique",def:"Droit pour toute personne suspectée ou poursuivie, soumise à une mesure privative de liberté, de se voir remettre lors de la notification de cette mesure un document énonçant dans des termes simples et accessibles, et dans une langue qu’elle comprend, les droits (au nombre de neuf) dont elle bénéficie au cours de la procédure : droit aux informations concernant l’infraction reprochée, droit de faire des déclarations, répondre ou se taire lors des auditions ou interrogatoires, droit à l’assistanc..."},
+  {terme:"Infraction",src:"Lexique",def:"Action ou omission violant une norme de conduite strictement définie par un texte d’incrimination entraînant la responsabilité pénale de son auteur. Elle peut être constitutive d’un crime , d’un délit ou d’une contravention en fonction des peines prévues par le texte."},
+  {terme:"Injonction de soins",src:"Lexique",def:"Peine complémentaire que la loi peut prévoir en matière de crime et de délit. Elle frappe les per
