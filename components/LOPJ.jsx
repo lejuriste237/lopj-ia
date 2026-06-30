@@ -1,10 +1,10 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 
 // ─── DESIGN TOKENS ────────────────────────────────────────────────────────────
 const C={bg:"#0f1419",surface:"#1a2332",border:"#2d3f55",gold:"#c8a84b",text:"#e2e8f0",muted:"#94a3b8",dim:"#64748b",green:"#22c55e",warn:"#f59e0b",red:"#ef4444",blue:"#60a5fa",purple:"#a78bfa"};
 const S={
   app:{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:"'Segoe UI',system-ui,sans-serif",display:"flex",flexDirection:"column"},
-  header:{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"10px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100},
+  header:{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"5px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100},
   hLeft:{display:"flex",alignItems:"center",gap:10},
   nav:{display:"flex",gap:2,flexWrap:"wrap"},
   navBtn:{background:"transparent",border:"none",cursor:"pointer",fontSize:13,padding:"6px 10px",borderRadius:8,color:C.muted,fontWeight:600},
@@ -43,6 +43,36 @@ function CorrectionDisplay({text}){
     if(!line) return <br key={i}/>;
     return <p key={i} style={{fontSize:13,lineHeight:1.8,color:C.text,margin:"3px 0"}}>{line}</p>;
   })}</div>;
+}
+
+// ─── ANIMATIONS CSS ──────────────────────────────────────────────────────────
+const injectStyles = () => {
+  if (document.getElementById("lopj-styles")) return;
+  const el = document.createElement("style");
+  el.id = "lopj-styles";
+  el.textContent = `
+    @keyframes lopj-glow    { 0%,100%{text-shadow:0 0 4px #c8a84b60} 50%{text-shadow:0 0 14px #c8a84bcc,0 0 30px #c8a84b44} }
+    @keyframes lopj-slide   { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+    @keyframes lopj-rock    { 0%,100%{transform:rotate(0deg)} 25%{transform:rotate(-12deg)} 75%{transform:rotate(12deg)} }
+    .lopj-balance-wrap { display:inline-block; animation:lopj-rock 3s ease-in-out infinite; transform-origin:center bottom; }
+    .lopj-tab { position:relative; transition:color .2s,background .2s,transform .18s; overflow:hidden; }
+    .lopj-tab::after { content:""; position:absolute; bottom:0; left:0; width:100%; height:2px; background:#c8a84b; border-radius:2px 2px 0 0; transform:scaleX(0); transform-origin:center; transition:transform .25s cubic-bezier(.4,0,.2,1); }
+    .lopj-tab.lopj-active::after { transform:scaleX(1); }
+    .lopj-tab:hover:not(.lopj-active) { background:rgba(45,63,85,.5) !important; transform:translateY(-2px); }
+    .lopj-tab.lopj-active { transform:translateY(-1px); }
+    .lopj-zenker { animation:lopj-glow 3.5s ease-in-out infinite; }
+    .lopj-page   { animation:lopj-slide .25s ease both; }
+  `;
+  document.head.appendChild(el);
+};
+
+// ─── BALANCE SVG ANIMÉE ───────────────────────────────────────────────────────
+function BalanceSVG({size=32}){
+  return(
+    <span className="lopj-balance-wrap" style={{display:"inline-flex",alignItems:"center",fontSize:size,lineHeight:1}}>
+      ⚖️
+    </span>
+  );
 }
 
 // ─── LEXIQUE GÉNÉRAL ─────────────────────────────────────────────────────────
@@ -728,16 +758,174 @@ export default function LOPJ() {
   const [apiProvider, setApiProvider] = useState("claude");
   const [mistralKey, setMistralKey] = useState("");
   const [showKeyInput, setShowKeyInput] = useState(false);
+  // ── Nouvelles fonctionnalités ──
+  const [casSauvegardes, setCasSauvegardes] = useState(()=>{try{return JSON.parse(localStorage.getItem("lopj_sauvegardes")||"[]")}catch{return []}});
+  const [favoris, setFavoris] = useState(()=>{try{return JSON.parse(localStorage.getItem("lopj_favoris")||"[]")}catch{return []}});
+  const [dialogHistory, setDialogHistory] = useState([]);
+  const [dialogInput, setDialogInput] = useState("");
+  const [dialogLoading, setDialogLoading] = useState(false);
+  const [ficheIA, setFicheIA] = useState(null);
+  const [ficheLoading, setFicheLoading] = useState(false);
+  const [showFiche, setShowFiche] = useState(false);
+  const [showDialog, setShowDialog] = useState(false);
+  const [showSauvegardes, setShowSauvegardes] = useState(false);
+  const [voiceActive, setVoiceActive] = useState(false);
+  const [articleModal, setArticleModal] = useState(null);
 
   const apiConfig = {provider: apiProvider, mistralKey};
 
+  // ── Sauvegarde locale ──
+  const sauvegarderCas = useCallback(() => {
+    if(!cas) return;
+    const entry = {id:Date.now(), cas, reponses, correction, date:new Date().toLocaleDateString("fr-FR"), titre:cas.titre, source:cas.source};
+    const updated = [entry, ...casSauvegardes].slice(0,30);
+    setCasSauvegardes(updated);
+    try{localStorage.setItem("lopj_sauvegardes", JSON.stringify(updated));}catch{}
+    alert("✅ Cas sauvegardé !");
+  }, [cas, reponses, correction, casSauvegardes]);
+
+  const toggleFavori = useCallback((id) => {
+    const updated = favoris.includes(id) ? favoris.filter(f=>f!==id) : [...favoris, id];
+    setFavoris(updated);
+    try{localStorage.setItem("lopj_favoris", JSON.stringify(updated));}catch{}
+  }, [favoris]);
+
+  const supprimerSauvegarde = useCallback((id) => {
+    const updated = casSauvegardes.filter(c=>c.id!==id);
+    setCasSauvegardes(updated);
+    try{localStorage.setItem("lopj_sauvegardes", JSON.stringify(updated));}catch{}
+  }, [casSauvegardes]);
+
+  const chargerSauvegarde = useCallback((entry) => {
+    setCas(entry.cas); setReponses(entry.reponses||{}); setCorrection(entry.correction||null);
+    setShowCorrection(!!entry.correction); setCorrectionMode(null);
+    setShowDialog(false); setShowFiche(false); setDialogHistory([]);
+    setScreen("cas"); setShowSauvegardes(false);
+  }, []);
+
+  // ── Export PDF (texte) ──
+  const exporterPDF = useCallback(() => {
+    if(!cas) return;
+    const lines = [
+      "L'OPJ — Rapport de Session", "Par Georges Zenker", "═".repeat(50),
+      "", `Cas : ${cas.titre}`, `Source : ${cas.source||"CP+CPP"}`, `Thème : ${cas.theme||"—"}`, `Infraction : ${cas.infraction_principale||"—"}`,
+      "", "FAITS", "─".repeat(40), cas.faits||"",
+      "", "QUESTIONS & RÉPONSES", "─".repeat(40),
+      ...(cas.questions||[]).flatMap((q,i)=>[`Q${i+1}. ${q}`, `R: ${reponses[i]||"(sans réponse)"}`,""]),
+      correction ? ["CORRECTION IA","─".repeat(40), correction].join("\n") : "",
+      "", `Exporté le ${new Date().toLocaleDateString("fr-FR")}`, "Par Georges Zenker — L'OPJ"
+    ].join("\n");
+    const blob = new Blob([lines], {type:"text/plain;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href=url; a.download=`LOPJ_${cas.titre.replace(/\s+/g,"_").slice(0,30)}.txt`; a.click();
+    URL.revokeObjectURL(url);
+  }, [cas, reponses, correction]);
+
+  // ── Synthèse vocale ──
+  const lireCorrection = useCallback(() => {
+    if(!correction||!window.speechSynthesis) return;
+    if(voiceActive){ window.speechSynthesis.cancel(); setVoiceActive(false); return; }
+    const utt = new SpeechSynthesisUtterance(correction.replace(/[🎯✅🔍📖⚖️🏛️💡📝🔴🟡🟢]/g,""));
+    utt.lang="fr-FR"; utt.rate=0.9; utt.pitch=1;
+    utt.onend=()=>setVoiceActive(false); utt.onerror=()=>setVoiceActive(false);
+    setVoiceActive(true); window.speechSynthesis.speak(utt);
+  }, [correction, voiceActive]);
+
+  // ── Dialogue de suivi ──
+  const envoyerDialogue = useCallback(async () => {
+    if(!dialogInput.trim()||!cas) return;
+    const userMsg = dialogInput.trim(); setDialogInput("");
+    const newHist = [...dialogHistory, {role:"user",content:userMsg}];
+    setDialogHistory(newHist); setDialogLoading(true);
+    const context = `Tu es L'OPJ, expert en droit camerounais. Le cas pratique est : "${cas.titre}". Faits : ${cas.faits}. Correction fournie : ${correction||"Pas encore corrigé."}. Réponds en français de façon pédagogique, précise et concise (max 200 mots).`;
+    try{
+      const resp = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:400,system:context,messages:newHist.map(m=>({role:m.role,content:m.content}))})});
+      const data = await resp.json();
+      const reply = data.content?.[0]?.text||"Désolé, pas de réponse.";
+      setDialogHistory([...newHist,{role:"assistant",content:reply}]);
+    }catch(e){ setDialogHistory([...newHist,{role:"assistant",content:"Erreur de connexion."}]); }
+    setDialogLoading(false);
+  }, [dialogInput, dialogHistory, cas, correction]);
+
+  // ── Fiche de révision ──
+  const genererFiche = useCallback(async () => {
+    if(!cas) return;
+    setFicheLoading(true); setShowFiche(true); setFicheIA(null);
+    const sys = `Tu es L'OPJ. Génère une fiche de révision synthétique (max 300 mots) sur l'infraction "${cas.infraction_principale||cas.theme}" du droit camerounais. Structure : 1) Définition légale 2) Éléments constitutifs 3) Peine(s) principale(s) 4) Circonstances aggravantes/atténuantes 5) Procédure applicable. Renvoie du texte brut structuré avec des emojis de section.`;
+    try{
+      const resp = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:600,messages:[{role:"user",content:`Fiche révision: ${cas.infraction_principale||cas.theme} — droit camerounais`}],system:sys})});
+      const data = await resp.json();
+      setFicheIA(data.content?.[0]?.text||"Erreur.");
+    }catch{ setFicheIA("Erreur de génération."); }
+    setFicheLoading(false);
+  }, [cas]);
+
+  // ── Schéma de procédure ──
+  const [showProcedure, setShowProcedure] = useState(false);
+  const [procedureType, setProcedureType] = useState("garde_a_vue");
+
   // ─ All terms combined ─
   const ALL_TERMS = [...LEXIQUE_GENERAL, ...LEXIQUE_JURIDIQUE];
+
+  // ─ Heatmap thématique ─
+  const heatmapData = useCallback(() => {
+    const themes = {};
+    historique.forEach(h => {
+      const t = h.theme||"Autre";
+      if(!themes[t]) themes[t]={total:0,score:0};
+      themes[t].total++; themes[t].score+=h.score||0;
+    });
+    return Object.entries(themes).map(([t,d])=>({theme:t,total:d.total,avg:Math.round(d.score/d.total)})).sort((a,b)=>b.total-a.total);
+  }, [historique]);
+
+  // ─ Random context generator ─
+  const genRandomContext = () => {
+    const r = arr => arr[Math.floor(Math.random()*arr.length)];
+    const prenoms = ["Alain","Serge","Jean-Baptiste","Patrice","Emmanuel","Narcisse","Rodrigue","Arnaud","Thierry","Didier","Bertrand","Fabrice","Ulrich","Stève","Romuald","Cédric","Brice","Hervé","Wilfried","Gaétan","Armand","Gilles","Sylvain","Raoul","Guy","Hermann","Blaise","Cyrille","Darius","Edouard","Francis","Ignace","Jules","Léopold","Marcel","Nestor","Olivier","Philippe","René","Samuel","Théodore","Victor","Xavier","Yves","Achille","Bruno","Clément","Denis","Félix","Grégoire","Henri","Jérôme","Fernand","Valère","Ghislain","Dieudonné","Gervais","Innocent","Modeste","Rufin","Théophile","Apollinaire","Désiré","Célestin","Norbert","Séverin","Pamphile","Sosthène"];
+    const prenomsFem = ["Marie","Anne","Christelle","Sandrine","Nadège","Carine","Viviane","Solange","Évelyne","Francine","Régine","Martine","Joëlle","Céleste","Diane","Estelle","Flore","Ghislaine","Hortense","Isabelle","Jacqueline","Karine","Laurence","Monique","Nathalie","Odette","Paulette","Rosette","Suzanne","Thérèse","Valérie","Yvonne","Adèle","Béatrice","Claire","Danielle","Émilienne","Félicité","Geneviève","Hélène","Irène","Josiane","Laure","Mireille","Nicole","Olive","Angélique","Blandine","Colette","Denise","Eugénie","Françoise","Germaine","Honorine","Léontine","Philomène","Séraphine","Victoire","Alphonsine","Bernadette","Cécile"];
+    const noms = ["Mvondo","Essama","Ngo Biyong","Tamba","Bello","Aboubakar","Mbarga","Fotso","Nkono","Kamdem","Tchinda","Djoko","Ateba","Owona","Onana","Bilong","Mengue","Bebey","Ndongo","Simo","Yombi","Ndoumbe","Akono","Eyenga","Zang","Obam","Ntonga","Kouam","Djeukam","Ngah","Tabi","Wamba","Enoh","Lobe","Minyem","Tsogo","Nana","Biloa","Ondoua","Zambo","Ekotto","Beyala","Manga","Mbida","Ondo","Nkotto","Eba","Ntsama","Effa","Eloundou","Foe","Mbem","Nkeng","Yanga","Etoa","Abena","Mekulu","Ngono","Moutomé","Biyaga"];
+    const professions = ["commerçant(e)","fonctionnaire","enseignant(e)","chauffeur de taxi","agent de sécurité","mécanicien","infirmier(ère)","cultivateur","employé(e) de banque","gérant(e) de boutique","gardien de la paix","sous-officier de gendarmerie","technicien","menuisier","comptable","secrétaire","directeur d'école","pasteur","imam","greffier adjoint","receveur de bus","agent des impôts","douanier","électricien","vendeur ambulant","conducteur de moto-taxi","agent de recouvrement","chef de quartier","restaurateur","coiffeur(se)","tailleur(se)","pharmacien(ne)","inspecteur des douanes","délégué départemental"];
+    const GEO = {
+      "Yaoundé":{ quartiers:["Mokolo","Briqueterie","Mvog-Ada","Biyem-Assi","Nkoldongo","Essos","Cité Verte","Mimboman","Ekounou","Mvan","Emana","Nkolbisson","Oyom-Abang","Tsinga","Bastos","Elig-Essono","Mfoundi","Ngoa-Ekélé","Nlongkak","Omnisport","Messa","Mvog-Betsi","Obili","Nsam","Mvog-Mbi","Kondengui","Efoulan","Djoungolo","Nkol-Eton","Simbock"], marches:["Marché Central de Yaoundé","Marché de Mokolo","Marché du Mfoundi","Marché Mvog-Ada","Marché de la Briqueterie","Marché de Mimboman","Marché d'Ekounou","Marché de Biyem-Assi","Marché de Nkoldongo","Carrefour Mvog-Mbi"], institutions:["Tribunal de Grande Instance du Mfoundi","Tribunal de Première Instance de Yaoundé-Centre","Cour d'Appel du Centre","Commissariat Central de Yaoundé","Brigade de Gendarmerie de Yaoundé","Délégation Régionale de la Sûreté Nationale du Centre","Prison Centrale de Kondengui","Parquet du Tribunal de Yaoundé","Hôpital Central de Yaoundé","CRTV Yaoundé","Université de Yaoundé I","ENAM de Yaoundé","École Nationale de Police de Yaoundé"], lieux_notables:["Rond-point Nlongkak","Carrefour Obili","Avenue Kennedy","Boulevard du 20 Mai","Gare Routière de Mvan","Gare Centrale de Yaoundé","Place Ahmadou Ahidjo","Palais de Justice de Yaoundé","Pont sur le Mfoundi"] },
+      "Douala":{ quartiers:["Akwa","Deido","New Bell","Bépanda","Bonabéri","Makepe","Logbaba","Ndog-Bong","Kotto","PK8","Bonanjo","Bonapriso","Ndokotti","Bassa","Nylon","Cité des Palmiers","PK14","Ndogpassi","Mboppi","Yassa","Japoma","Nyalla","Nkoumassi","Cité SIC","New-Deido","Ange Raphaël"], marches:["Marché Central de Douala","Marché Sandaga","Marché de New Bell","Marché de Ndokotti","Marché de Bonabéri","Marché de Bépanda","Marché de Kotto","Marché de Logbaba","Marché du PK8","Grand Marché de Deido"], institutions:["Tribunal de Grande Instance du Wouri","Tribunal de Première Instance de Douala-Bonanjo","Cour d'Appel du Littoral","Commissariat du 1er Arrondissement de Douala","Brigade de Gendarmerie de Douala","Prison Centrale de New Bell","Parquet du Tribunal de Douala","Hôpital Laquintinie de Douala","Hôpital Général de Douala","Port Autonome de Douala","Aéroport International de Douala","Université de Douala"], lieux_notables:["Place du Gouvernement","Boulevard de la Liberté","Carrefour Ndokotti","Gare Routière de Bonabéri","Rond-point Deido","Avenue Joss","Pont sur le Wouri","Supermarché Casino de Douala"] },
+      "Bafoussam":{ quartiers:["Tamdja","Djeleng","Banengo","Tougang","Famla","Ndiangdam","Haoussa","Kwa-Kwa","Djeleng II","Ngouache","Kamkop","Médina","Kouoptamo","Baham","Bamougoum"], marches:["Grand Marché A de Bafoussam","Marché B de Bafoussam","Marché de Tamdja","Marché de Djeleng","Marché de Banengo"], institutions:["Tribunal de Grande Instance de la Mifi","Tribunal de Première Instance de Bafoussam","Cour d'Appel de l'Ouest","Commissariat Central de Bafoussam","Brigade de Gendarmerie de Bafoussam","Prison Centrale de Bafoussam","Délégation Régionale de la Sûreté Nationale de l'Ouest","Hôpital Régional de Bafoussam"], lieux_notables:["Rond-point de Bafoussam","Avenue des Alliés","Carrefour Marché A","Gare Routière de Bafoussam","Palais du Sultan de Bafoussam","Stade Municipal de Bafoussam"] },
+      "Garoua":{ quartiers:["Riao","Lopéré","Laïndé Karewa","Poumpoumré","Quartier Administratif","Bouari","Foulbéré","Djamboutou","Wuro Hausa","Djaouro","Ngong","Bocklé","Guirei","Mayo-Ngel","Ouro-Labbo"], marches:["Grand Marché de Garoua","Marché de Lopéré","Marché de Riao","Marché de Poumpoumré","Marché Central de Garoua"], institutions:["Tribunal de Grande Instance de la Bénoué","Tribunal de Première Instance de Garoua","Cour d'Appel du Nord","Commissariat Central de Garoua","Brigade de Gendarmerie de Garoua","Prison Centrale de Garoua","Délégation Régionale de la Sûreté Nationale du Nord","Hôpital Régional de Garoua","Aéroport de Garoua"], lieux_notables:["Avenue du Lamidat","Palais du Lamido de Garoua","Rond-point Administratif","Gare Routière de Garoua","Pont sur la Bénoué","Port Fluvial de Garoua"] },
+      "Bertoua":{ quartiers:["Haoussa","Quartier Administratif","Ngaré","Quartier de la Gare","Mbetendey","Boumba","Danga","Bonis","Mbang","Ndokayo","Doumaintang"], marches:["Grand Marché de Bertoua","Marché de Haoussa","Marché Central de Bertoua","Marché de la Gare de Bertoua"], institutions:["Tribunal de Grande Instance de la Lom-et-Djérem","Tribunal de Première Instance de Bertoua","Cour d'Appel de l'Est","Commissariat Central de Bertoua","Brigade de Gendarmerie de Bertoua","Prison Centrale de Bertoua","Délégation Régionale de la Sûreté Nationale de l'Est","Hôpital Régional de Bertoua"], lieux_notables:["Avenue du Gouvernement","Rond-point de Bertoua","Gare Routière de Bertoua","Carrefour Haoussa","Stade Municipal de Bertoua"] },
+      "Ngaoundéré":{ quartiers:["Quartier Administratif","Haoussa","Dang","Joli-Soir","Mbideng","Gare","Marrouwa","Sabongari","Naïti","Baladji","Dibi","Boulongo","Nganha"], marches:["Grand Marché de Ngaoundéré","Marché de Haoussa","Marché de la Gare","Marché de Dang","Marché de Joli-Soir"], institutions:["Tribunal de Grande Instance de la Vina","Tribunal de Première Instance de Ngaoundéré","Cour d'Appel de l'Adamaoua","Commissariat Central de Ngaoundéré","Brigade de Gendarmerie de Ngaoundéré","Prison Centrale de Ngaoundéré","Université de Ngaoundéré","Hôpital Régional de Ngaoundéré","Gare Ferroviaire de Ngaoundéré","Aéroport de Ngaoundéré"], lieux_notables:["Palais du Lamido de Ngaoundéré","Avenue de la Gare","Gare Routière de Ngaoundéré","Pont sur la Vina","Gare CAMRAIL de Ngaoundéré"] },
+      "Maroua":{ quartiers:["Dougoy","Domayo","Kongola","Hardé","Pitoaré","Boudoumari","Founangué","Zokok","Kakataré","Lopéré Maroua","Gayak","Kodek","Makabaye","Mokoloua","Dogba"], marches:["Grand Marché de Maroua","Marché de Dougoy","Marché Artisanal de Maroua","Marché de Domayo","Marché de Kongola","Marché de Hardé"], institutions:["Tribunal de Grande Instance du Diamaré","Tribunal de Première Instance de Maroua","Cour d'Appel de l'Extrême-Nord","Commissariat Central de Maroua","Brigade de Gendarmerie de Maroua","Prison Centrale de Maroua","Délégation Régionale de la Sûreté Nationale de l'Extrême-Nord","Université de Maroua","Hôpital Régional de Maroua"], lieux_notables:["Palais du Lamido de Maroua","Avenue du Palais","Gare Routière de Maroua","Rond-point de Maroua","Centre Artisanal de Maroua","Musée des Arts et des Traditions de Maroua"] },
+      "Bamenda":{ quartiers:["Commercial Avenue","Up Station","Ntarikon","Old Town","Cow Street","Nkwen","Mulang","Mile 4","Foncha Street","Mankon","Ngomgham","Sisia","Azire","Abangoh"], marches:["Main Market Bamenda","Bamenda Food Market","Ntarikon Market","Nkwen Market","Old Town Market","Mile 4 Market","Mankon Market"], institutions:["High Court of Mezam","Magistrate Court Bamenda","Court of Appeal of the North West","Bamenda Central Police Station","Bamenda Gendarmerie Brigade","Bamenda Central Prison","University of Bamenda","Regional Hospital Bamenda","North West Governor's Office"], lieux_notables:["Commercial Avenue Bamenda","City Chemist Roundabout","Bamenda Handicraft Center","Bamenda Bus Station","Foncha Street Junction","Up Station Hill","Bamenda Municipal Stadium"] },
+      "Ebolowa":{ quartiers:["Nkouloulou","Angalé","Centre Administratif","Nkoevos","Fébé","Nkol-Mebanga","Biba","Yen","Meyo","Mvangan Route","Bitam Route","Sangmélima Route"], marches:["Grand Marché d'Ebolowa","Marché Central d'Ebolowa","Marché de Nkouloulou","Marché d'Angalé","Marché de Meyo"], institutions:["Tribunal de Grande Instance de la Mvila","Tribunal de Première Instance d'Ebolowa","Cour d'Appel du Sud","Commissariat Central d'Ebolowa","Brigade de Gendarmerie d'Ebolowa","Prison Centrale d'Ebolowa","Délégation Régionale de la Sûreté Nationale du Sud","Hôpital Régional d'Ebolowa"], lieux_notables:["Avenue de la République","Rond-point d'Ebolowa","Gare Routière d'Ebolowa","Stade Municipal d'Ebolowa","Palais de Justice d'Ebolowa","Lac d'Ebolowa"] },
+      "Kribi":{ quartiers:["Centre Ville","Afan","Petit Paris","Kibouendé","Talla","Ngoye","Mboamanga","Lolabé","Grand Batanga","Londji","Mpolongwé","Nziou","Bidou","Fifinda"], marches:["Marché Central de Kribi","Marché aux Poissons de Kribi","Marché d'Afan","Marché du Port de Kribi","Marché de Grand Batanga"], institutions:["Tribunal de Première Instance de Kribi","Commissariat de Police de Kribi","Brigade de Gendarmerie de Kribi","Hôpital de District de Kribi","Port en Eau Profonde de Kribi","Sous-Préfecture de Kribi"], lieux_notables:["Plage de Kribi","Chutes de la Lobé","Avenue de la Plage","Port de Kribi","Carrefour Petit Paris","Gare Routière de Kribi"] },
+      "Kumba":{ quartiers:["Fiango","Mbonge Road","Kake","Kumba Town","Malende","Ntul","Mile 16","Munyenge","Ikiliwindi","Kake II","Messe","Ngoe","Barombi Mbo","Banga Bakundu"], marches:["Kumba Market","Fiango Market","Mbonge Road Market","Kake Market","Mile 16 Market"], institutions:["High Court of Meme","Magistrate Court Kumba","Kumba Central Police Station","Kumba Gendarmerie Brigade","Kumba Central Prison","District Hospital Kumba","Kumba Sub-Divisional Office"], lieux_notables:["Lac Barombi Mbo","Fiango Junction","Kumba Bus Station","Kumba Town Hall","Kake Junction","Mile 16 Junction","Kumba Football Stadium"] },
+      "Buea":{ quartiers:["Molyko","Great Soppo","Small Soppo","Bonduma","Clerks Quarter","Federal Quarter","Buea Town","Bokwango","Wokoko","Mile 17","Bova","Muea","Lysoka","Tole","Likoko"], marches:["Muea Market","Buea Market","Molyko Market","Great Soppo Market","Mile 17 Motor Park Market","Tole Market"], institutions:["High Court of Fako","Magistrate Court Buea","Buea Central Police Station","Buea Gendarmerie Brigade","Buea Central Prison","University of Buea","Regional Hospital Buea","South West Governor's Office"], lieux_notables:["Mont Cameroun","Buea Town Hall","Molyko Stadium","Mile 17 Motor Park","University of Buea Main Gate","Great Soppo Junction","Buea Mountain Hotel"] },
+      "Limbé":{ quartiers:["Down Beach","Church Street","New Town","Bota","Unity Quarter","Mile 4","Mabeta","Cassava Farm","Motowoh","Limbe Town","Ndongo","Batoke","Garden","New Layout"], marches:["Limbe Market","Down Beach Market","New Town Market","Bota Market","Mabeta Market"], institutions:["Magistrate Court Limbe","Limbe Central Police Station","Limbe Gendarmerie Brigade","Limbe District Hospital","Limbe Wildlife Centre","Port of Limbe","Limbe Sub-Divisional Office","SONARA Limbe"], lieux_notables:["Down Beach Limbe","Limbe Botanical Garden","Limbe Wildlife Centre","Atlantic Beach Hotel","Limbe Fish Market","Mabeta Junction","Batoke Beach","SONARA Raffinerie"] },
+      "Dschang":{ quartiers:["Centre Administratif","Foto","Foréké","Fossong-Wentcheng","Nkong","Fongo-Tongo","Banka","Nkouossong","Kekem Route","Baham Route","Penka-Michel Route","Santchou Route"], marches:["Grand Marché de Dschang","Marché de Foto","Marché de Foréké","Marché Hebdomadaire de Dschang"], institutions:["Tribunal de Première Instance de Dschang","Commissariat de Police de Dschang","Brigade de Gendarmerie de Dschang","Université de Dschang","Hôpital de District de Dschang","Sous-Préfecture de Dschang"], lieux_notables:["Lac de Dschang","Université de Dschang","Gare Routière de Dschang","Centre Culturel de Dschang","Carrefour Foto","Musée du Pays Bamiléké"] },
+      "Mbalmayo":{ quartiers:["Centre Administratif","Nkol-Messeng","Mvan Mbalmayo","Ebogo","Nkol-Nlong","Akono Route","Menguemé","Edzendouan","Biwong-Bulu","Ngomedzap Route","Nkoemvon"], marches:["Marché Central de Mbalmayo","Marché de Nkol-Messeng","Marché de Menguemé"], institutions:["Tribunal de Grande Instance de la Nyong-et-So'o","Tribunal de Première Instance de Mbalmayo","Commissariat de Police de Mbalmayo","Brigade de Gendarmerie de Mbalmayo","Prison de Mbalmayo","Hôpital de District de Mbalmayo","Sous-Préfecture de Mbalmayo"], lieux_notables:["Pont sur la Nyong à Mbalmayo","Gare Routière de Mbalmayo","Rond-point de Mbalmayo","Stade Municipal de Mbalmayo","Fleuve Nyong"] },
+      "Foumban":{ quartiers:["Njifdzen","Famla Foumban","Koutaba Route","Baigom","Ntonkia","Ngoumba","Massangam Route","Malantouen","Magba Route","Bankim Route","Ntui-Bamoun","Manki"], marches:["Marché de Foumban","Marché Artisanal de Foumban","Grand Marché du Vendredi de Foumban","Marché de Njifdzen"], institutions:["Tribunal de Première Instance de Foumban","Commissariat de Police de Foumban","Brigade de Gendarmerie de Foumban","Hôpital de District de Foumban","Palais Royal de Foumban","Sous-Préfecture de Foumban"], lieux_notables:["Palais Royal des Rois Bamoun","Musée des Arts et Traditions Bamoun","Marché Artisanal de Foumban","Gare Routière de Foumban","Grande Mosquée de Foumban","Lac de Foumban"] },
+      "Sangmélima":{ quartiers:["Centre Ville","Meyos","Nkong-Meyos","Nkoemvon","Meyomessala Route","Melomé","Nkolmelen","Mvangan Route","Djoum Route","Oveng"], marches:["Marché Central de Sangmélima","Marché de Meyos","Grand Marché de Sangmélima"], institutions:["Tribunal de Première Instance de Sangmélima","Commissariat de Police de Sangmélima","Brigade de Gendarmerie de Sangmélima","Hôpital de District de Sangmélima","Sous-Préfecture de Sangmélima"], lieux_notables:["Gare Routière de Sangmélima","Rond-point de Sangmélima","Stade Municipal de Sangmélima","Fleuve Dja"] },
+      "Edéa":{ quartiers:["Pont Wouri","Cité ALUCAM","Hippodrome","Malimba","Logbikoy","Elog-Batindi","Mbanga Route","Sakbayémé","Nyanon","Mambanda","Mouanko Route","Pouma Route"], marches:["Marché Central d'Edéa","Marché de la Cité ALUCAM","Grand Marché d'Edéa","Marché de Pont Wouri"], institutions:["Tribunal de Première Instance d'Edéa","Commissariat de Police d'Edéa","Brigade de Gendarmerie d'Edéa","Hôpital de District d'Edéa","ALUCAM (Aluminium du Cameroun)","Centrale Hydroélectrique d'Edéa","Sous-Préfecture d'Edéa"], lieux_notables:["Pont sur le Wouri à Edéa","Chutes de la Sanaga","Centrale SONEL d'Edéa","Gare Routière d'Edéa","Carrefour ALUCAM","Gare CAMRAIL d'Edéa"] },
+      "Nkongsamba":{ quartiers:["Bare","Tombel Route","Loum Route","Melong Route","Mpoh","Mamfe Route","Bomono","Bafang Route","Santchou Route","Nkam Route","Sousa","Penja Route","Manjo Route"], marches:["Marché Central de Nkongsamba","Marché de Bare","Grand Marché de Nkongsamba","Marché de Melong"], institutions:["Tribunal de Première Instance de Nkongsamba","Commissariat de Police de Nkongsamba","Brigade de Gendarmerie de Nkongsamba","Hôpital de District de Nkongsamba","Sous-Préfecture de Nkongsamba","Gare CAMRAIL de Nkongsamba"], lieux_notables:["Gare Ferroviaire de Nkongsamba","Gare Routière de Nkongsamba","Mont Manengouba","Carrefour Tombel","Rond-point de Nkongsamba","Lac Crater de Manengouba"] },
+      "Kousséri":{ quartiers:["Kousséri Centre","Bodo","Maltam","Logone-Birni","Darak","Blangoua","Zimado","Ndiguina","Ndjoundé","Goulfey","Waza Route","Mora Route","N'Djamena Route"], marches:["Marché Central de Kousséri","Marché Frontalier Kousséri-N'Djamena","Marché de Maltam","Grand Marché de Kousséri","Marché de Logone-Birni"], institutions:["Tribunal de Première Instance de Kousséri","Commissariat de Police de Kousséri","Brigade de Gendarmerie de Kousséri","Hôpital de District de Kousséri","Poste Frontière Cameroun-Tchad de Kousséri","Sous-Préfecture de Kousséri","Bureau des Douanes de Kousséri"], lieux_notables:["Pont du Logone (Frontière Cameroun-Tchad)","Gare Routière de Kousséri","Marché Frontalier Kousséri","Rive du Logone","Berge du Chari"] },
+      "Abong-Mbang":{ quartiers:["Centre Administratif","Angossas","Doumaintang","Dimako Route","Lomié Route","Mboma","Mbang","Nkolbikon","Batouri Route","Doumé Route","Bonis","Ngola"], marches:["Marché Central d'Abong-Mbang","Marché de Dimako","Grand Marché d'Abong-Mbang"], institutions:["Tribunal de Première Instance d'Abong-Mbang","Commissariat de Police d'Abong-Mbang","Brigade de Gendarmerie d'Abong-Mbang","Hôpital de District d'Abong-Mbang","Sous-Préfecture d'Abong-Mbang"], lieux_notables:["Gare Routière d'Abong-Mbang","Lac d'Abong-Mbang","Carrefour Messamena","Rond-point d'Abong-Mbang","Fleuve Nyong (amont)"] },
+      "Batouri":{ quartiers:["Centre Administratif","Haoussa Batouri","Ndelele Route","Yokadouma Route","Kentzou Route","Ndélélé","Mbotoro","Nguelbiang","Doumé Route","Bélabo Route","Nguimbang","Gari-Gombo Route"], marches:["Marché Central de Batouri","Marché de Haoussa","Grand Marché de Batouri","Marché Frontalier de Batouri"], institutions:["Tribunal de Grande Instance de la Kadey","Tribunal de Première Instance de Batouri","Commissariat Central de Batouri","Brigade de Gendarmerie de Batouri","Prison de Batouri","Hôpital de District de Batouri","Sous-Préfecture de Batouri"], lieux_notables:["Gare Routière de Batouri","Carrefour Yokadouma","Pont sur la Kadey","Rond-point de Batouri","Marché Frontalier RCA-Cameroun","Fleuve Kadey"] },
+      "Mokolo":{ quartiers:["Centre Mokolo","Moskota Route","Koza Route","Mora Route","Tourou","Roua","Mouktélé","Gawar","Bourrha","Hina Route","Mabas","Bidzar Route","Doulo","Mozogo Route"], marches:["Grand Marché de Mokolo","Marché de Koza","Marché Hebdomadaire de Mokolo","Marché de Moskota","Marché de Mouktélé"], institutions:["Tribunal de Première Instance de Mokolo","Commissariat de Police de Mokolo","Brigade de Gendarmerie de Mokolo","Hôpital de District de Mokolo","Sous-Préfecture de Mokolo"], lieux_notables:["Monts Mandara","Parc National de Waza (accès via Mokolo)","Gare Routière de Mokolo","Carrefour Mora Route","Centre Artisanal des Monts Mandara","Pic de Rhumsiki"] }
+    };
+    const villes = Object.keys(GEO);
+    const ville = r(villes);
+    const geo = GEO[ville];
+    const heures = ["06h30","07h15","08h00","09h45","10h20","11h00","13h30","14h15","15h00","16h45","17h30","18h00","19h15","20h30","21h00","22h15","23h30","00h45","01h20","02h00","03h30","04h15","05h00"];
+    const jours = ["lundi","mardi","mercredi","jeudi","vendredi","samedi","dimanche"];
+    const mois = ["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
+    const années = ["2022","2023","2024","2025"];
+    const jourNum = Math.floor(Math.random()*28)+1;
+    return { ville, quartier:r(geo.quartiers), quartier2:r(geo.quartiers), marche:r(geo.marches), institution:r(geo.institutions), institution2:r(geo.institutions), lieu_notable:r(geo.lieux_notables), p1:`${r(prenoms)} ${r(noms)}`, p2:`${r(prenoms)} ${r(noms)}`, p3:`${r(prenoms)} ${r(noms)}`, f1:`${r(prenomsFem)} ${r(noms)}`, f2:`${r(prenomsFem)} ${r(noms)}`, prof1:r(professions), prof2:r(professions), prof3:r(professions), heure:r(heures), heure2:r(heures), jour:r(jours), date:`${jourNum} ${r(mois)} ${r(années)}` };
+  };
 
   // ─ Generate case ─
   const generateCas = useCallback(async () => {
     setCasLoading(true); setCas(null); setCorrection(null); setReponses({});
     setShowCorrection(false); setCorrectionMode(null);
+    const ctx = genRandomContext();
     const srcLabel = source==="Code Pénal"?"Code Pénal du Cameroun":source==="Code de Procédure Pénale"?"Code de Procédure Pénale du Cameroun":"Code Pénal et Code de Procédure Pénale du Cameroun";
     const themeLabel = source==="Code Pénal"&&themeCP!=="Tous les thèmes"?`Thème: ${themeCP}.`:source==="Code de Procédure Pénale"&&themeCPP!=="Tous les thèmes"?`Thème: ${themeCPP}.`:"";
     const niveauDesc = {Débutant:"simple, une seule infraction évidente, faits clairs, questions directes",Intermédiaire:"difficulté moyenne, 1-2 infractions, quelques nuances juridiques",Avancé:"complexe, plusieurs infractions possibles, circonstances aggravantes/atténuantes, conflits de qualification",Expert:"très complexe, combinant infractions multiples, questions de compétence, procédure et fond, pièges de qualification"}[niveau];
@@ -842,7 +1030,20 @@ ${ARTICLES_CP_CAM}
 
 ${ARTICLES_CPP_CAM}
 
-Utilise des noms, lieux et situations typiquement camerounais (Yaoundé, Douala, Bafoussam, Garoua, Bertoua, Limbé, noms africains, marchés, quartiers, etc.). Génère EXACTEMENT 3 questions numérotées. Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans backticks, sans explication. Structure: {"titre":"Titre court","faits":"Description détaillée 5-8 lignes","questions":["Q1","Q2","Q3"],"articles_references":["Art. X CP Cameroun"],"theme":"thème","source":"CP ou CPP ou CP+CPP","infraction_principale":"nom infraction"}`;
+━━━ CONTEXTE ALÉATOIRE À INTÉGRER OBLIGATOIREMENT ━━━
+Tu DOIS utiliser ces éléments fournis comme base narrative. Tous ces lieux sont réels et situés à ${ctx.ville}:
+- Personnages principaux: ${ctx.p1} (${ctx.prof1}), ${ctx.p2} (${ctx.prof2})
+- Personnage secondaire/témoin: ${ctx.p3} (${ctx.prof3}) ou ${ctx.f1}
+- Quartier principal: ${ctx.quartier}, ${ctx.ville}
+- Quartier secondaire: ${ctx.quartier2}, ${ctx.ville}
+- Marché local: ${ctx.marche}
+- Institution judiciaire/sécurité: ${ctx.institution}
+- Autre institution: ${ctx.institution2}
+- Lieu notable de la ville: ${ctx.lieu_notable}
+- Date des faits: le ${ctx.jour} ${ctx.date}
+- Heure(s): vers ${ctx.heure} (ou ${ctx.heure2} pour un second événement)
+Intègre-les naturellement. Ne mentionne PAS qu'ils sont "fournis". Tous les lieux doivent rester géographiquement cohérents avec ${ctx.ville}.
+Génère EXACTEMENT 3 questions numérotées. Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans backticks, sans explication. Structure: {"titre":"Titre court","faits":"Description détaillée 5-8 lignes","questions":["Q1","Q2","Q3"],"articles_references":["Art. X CP Cameroun"],"theme":"thème","source":"CP ou CPP ou CP+CPP","infraction_principale":"nom infraction"}`;
     try {
       const txt = await callAI([{role:"user",content:"Génère un nouveau cas pratique."}], sys, 1000, apiConfig);
       const clean=txt.replace(/```json|```/g,"").trim();
@@ -927,27 +1128,36 @@ Termine avec 📊 BILAN GLOBAL: score moyen /20 et 💡 À RETENIR: points méth
     finally{setLexiqueLoading(false);}
   },[lexiqueQuery,searchLexiqueLocal,apiConfig]);
 
+  useEffect(()=>{ injectStyles(); },[]);
+  const TABS=[["accueil","🏠","Accueil"],["config","⚙️","Config"],["stats","📊","Stats"],["lexique","📚","Lexique"],["procedure","🔄","Procédure"]];
+  const activeTab=screen==="cas"?"accueil":screen;
+
   return (
     <div style={S.app}>
       <header style={S.header}>
         <div style={S.hLeft}>
-          <span style={{fontSize:24}}>⚖️</span>
+          <BalanceSVG size={26}/>
           <div>
-            <div style={{fontWeight:800,fontSize:18,color:C.gold,letterSpacing:1}}>L'OPJ</div>
-            <div style={{fontSize:10,color:C.muted}}>Droit Pénal Camerounais · IA</div>
+            <div style={{fontWeight:800,fontSize:17,color:C.gold,letterSpacing:1,lineHeight:1.1}}>L&apos;OPJ</div>
+            <div style={{fontSize:9,color:C.muted,lineHeight:1.1}}>Droit Pénal Camerounais · IA</div>
           </div>
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          {/* API Provider Badge */}
-          <button onClick={()=>setShowKeyInput(v=>!v)} style={{background:apiProvider==="mistral"?"#ff7000":"#4f46e5",color:"#fff",border:"none",borderRadius:6,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <span className="lopj-zenker" style={{fontSize:10,fontWeight:700,color:C.gold,letterSpacing:.4,whiteSpace:"nowrap"}}>Par Georges Zenker</span>
+          <button onClick={()=>setShowKeyInput(v=>!v)} style={{background:apiProvider==="mistral"?"#ff7000":"#4f46e5",color:"#fff",border:"none",borderRadius:6,padding:"3px 8px",fontSize:10,fontWeight:700,cursor:"pointer"}}>
             {apiProvider==="mistral"?"🔥 Mistral":"🤖 Claude"}
           </button>
           <nav style={S.nav}>
-            {[["accueil","🏠","Accueil"],["config","⚙️","Config"],["stats","📊","Stats"],["lexique","📚","Lexique"]].map(([k,icon,title])=>(
-              <button key={k} onClick={()=>setScreen(k)} title={title} style={{...S.navBtn,...(screen===k||(screen==="cas"&&k==="accueil")?S.navActive:{})}}>
-                {icon} <span style={{fontSize:11}}>{title}</span>
-              </button>
-            ))}
+            {TABS.map(([k,icon,title])=>{
+              const isActive=activeTab===k;
+              return(
+                <button key={k} onClick={()=>setScreen(k)} title={title}
+                  className={`lopj-tab${isActive?" lopj-active":""}`}
+                  style={{...S.navBtn,...(isActive?S.navActive:{})}}>
+                  {icon} <span style={{fontSize:11}}>{title}</span>
+                </button>
+              );
+            })}
           </nav>
         </div>
       </header>
@@ -999,26 +1209,39 @@ Termine avec 📊 BILAN GLOBAL: score moyen /20 et 💡 À RETENIR: points méth
         </div>
       )}
 
-      <main style={S.main}>
-        {screen==="accueil"&&<Accueil stats={stats} historique={historique} onGenerate={generateCas} casLoading={casLoading} totalTerms={ALL_TERMS.length}/>}
+      <main key={screen} className="lopj-page" style={S.main}>
+        {screen==="accueil"&&<Accueil stats={stats} historique={historique} onGenerate={generateCas} casLoading={casLoading} totalTerms={ALL_TERMS.length} casSauvegardes={casSauvegardes} setScreen={setScreen}/>}
         {screen==="config"&&<Config source={source} setSource={setSource} niveau={niveau} setNiveau={setNiveau} themeCP={themeCP} setThemeCP={setThemeCP} themeCPP={themeCPP} setThemeCPP={setThemeCPP} onGenerate={generateCas} casLoading={casLoading}/>}
-        {screen==="cas"&&cas&&<CasScreen cas={cas} reponses={reponses} setReponses={setReponses} correction={correction} correctionLoading={correctionLoading} casLoading={casLoading} onCorrection={getCorrection} onNewCas={generateCas} showCorrection={showCorrection} correctionMode={correctionMode}/>}
-        {screen==="stats"&&<Stats stats={stats} historique={historique}/>}
+        {screen==="cas"&&cas&&<CasScreen cas={cas} reponses={reponses} setReponses={setReponses} correction={correction} correctionLoading={correctionLoading} casLoading={casLoading} onCorrection={getCorrection} onNewCas={generateCas} showCorrection={showCorrection} correctionMode={correctionMode} onSave={sauvegarderCas} onExport={exporterPDF} onVoice={lireCorrection} voiceActive={voiceActive} onFiche={genererFiche} ficheIA={ficheIA} ficheLoading={ficheLoading} showFiche={showFiche} setShowFiche={setShowFiche} dialogHistory={dialogHistory} dialogInput={dialogInput} setDialogInput={setDialogInput} onDialog={envoyerDialogue} dialogLoading={dialogLoading} showDialog={showDialog} setShowDialog={setShowDialog} setArticleModal={setArticleModal} favoris={favoris} onToggleFavori={toggleFavori}/>}
+        {screen==="stats"&&<Stats stats={stats} historique={historique} heatmapData={heatmapData()} casSauvegardes={casSauvegardes} favoris={favoris} onCharger={chargerSauvegarde} onSupprimer={supprimerSauvegarde} onToggleFavori={toggleFavori} showSauvegardes={showSauvegardes} setShowSauvegardes={setShowSauvegardes}/>}
+        {screen==="procedure"&&<Procedure procedureType={procedureType} setProcedureType={setProcedureType}/>}
         {screen==="lexique"&&<Lexique query={lexiqueQuery} setQuery={setLexiqueQuery} result={lexiqueResult} localResult={lexiqueLocalResult} loading={lexiqueLoading} onSearch={searchLexique} allTerms={ALL_TERMS}/>}
       </main>
-      <footer style={{textAlign:"center",padding:"10px",color:C.dim,fontSize:10,borderTop:`1px solid ${C.border}`}}>
-        L'OPJ — Droit Pénal Camerounais · {ALL_TERMS.length} termes intégrés (CP+CPP+Lexique) · IA {apiProvider==="mistral"?"Mistral":"Claude"}
+      <footer style={{textAlign:"center",padding:"8px 10px",borderTop:`1px solid ${C.border}`,display:"flex",flexDirection:"column",gap:2,alignItems:"center"}}>
+        <span style={{fontSize:9,color:C.dim}}>L&apos;OPJ · {ALL_TERMS.length} termes · IA {apiProvider==="mistral"?"Mistral":"Claude"}</span>
+        <span className="lopj-zenker" style={{fontSize:11,fontWeight:700,color:C.gold,letterSpacing:.4}}>Par Georges Zenker</span>
       </footer>
+
+      {/* ── Article Modal ── */}
+      {articleModal&&<div onClick={()=>setArticleModal(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.7)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:16,padding:24,maxWidth:520,width:"100%",maxHeight:"80vh",overflowY:"auto"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+            <span style={{fontWeight:800,color:C.gold,fontSize:15}}>{articleModal.ref}</span>
+            <button onClick={()=>setArticleModal(null)} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:18}}>✕</button>
+          </div>
+          <p style={{fontSize:13,lineHeight:1.8,color:C.text}}>{articleModal.texte}</p>
+        </div>
+      </div>}
     </div>
   );
 }
 
 // ─── ACCUEIL ──────────────────────────────────────────────────────────────────
-function Accueil({stats,historique,onGenerate,casLoading,totalTerms}){
+function Accueil({stats,historique,onGenerate,casLoading,totalTerms,casSauvegardes,setScreen}){
   return <div style={S.pad}>
     <div style={S.hero}>
-      <div style={{fontSize:48,marginBottom:6}}>⚖️</div>
-      <h1 style={{fontSize:36,fontWeight:900,color:C.gold,margin:"0 0 4px",letterSpacing:2}}>L'OPJ</h1>
+      <BalanceSVG size={72}/>
+      <h1 style={{fontSize:36,fontWeight:900,color:C.gold,margin:"0 0 4px",letterSpacing:2}}>L&apos;OPJ</h1>
       <p style={{color:C.muted,fontSize:13,marginBottom:10}}>Officier de Police Judiciaire Pédagogique</p>
       <p style={{color:C.text,fontSize:14,lineHeight:1.7,maxWidth:500,margin:"0 auto 20px"}}>
         Maîtrisez le <strong>Code Pénal</strong> et le <strong>Code de Procédure Pénale</strong> camerounais à travers des <strong>cas pratiques IA</strong> avec correction question par question.
@@ -1028,12 +1251,12 @@ function Accueil({stats,historique,onGenerate,casLoading,totalTerms}){
       </button>
     </div>
     <div style={S.row3}>
-      {[["📋","Cas générés",stats.total],["✅","Cas corrigés",stats.corriges],["🏆","Score moyen",stats.corriges?`${stats.score}/20`:"—"],["📚","Termes",totalTerms]].map(([ic,lb,v])=>(
+      {[["📋","Cas générés",stats.total],["✅","Cas corrigés",stats.corriges],["🏆","Score moyen",stats.corriges?`${stats.score}/20`:"—"],["💾","Sauvegardés",(casSauvegardes||[]).length]].map(([ic,lb,v])=>(
         <div key={lb} style={S.statCard}><div style={{fontSize:22,marginBottom:2}}>{ic}</div><div style={{fontSize:22,fontWeight:900,color:C.gold}}>{v}</div><div style={{fontSize:10,color:C.muted}}>{lb}</div></div>
       ))}
     </div>
     <div style={S.grid2}>
-      {[["🎲","Cas aléatoires IA","Scénarios réalistes camerounais"],["🧠","Méthode Socratique","Questions rhétoriques guidées"],["📐","Syllogisme juridique","Règle → Application → Conclusion"],["✍️","Correction par question","Chaque question traitée individuellement"],["📚","Lexique intégral","CP+CPP+"+totalTerms+" termes du lexique juridique"],["🔥","Multi-IA","Support Claude & Mistral AI"]].map(([ic,ti,de])=>(
+      {[["🎲","Cas aléatoires IA","Scénarios réalistes camerounais"],["🧠","Méthode Socratique","Questions rhétoriques guidées"],["📐","Syllogisme juridique","Règle → Application → Conclusion"],["✍️","Correction par question","Chaque question traitée individuellement"],["🗣️","Dialogue IA","Posez des questions après correction"],["💾","Sauvegarde & Export","Conservez vos cas & exportez en .txt"],["🔊","Lecture vocale","Correction lue à haute voix"],["🔄","Schémas procédure","Garde à vue, détention, jugement"]].map(([ic,ti,de])=>(
         <div key={ti} style={S.feat}><div style={{fontSize:22,marginBottom:4}}>{ic}</div><div style={{fontWeight:700,color:C.gold,fontSize:12,marginBottom:2}}>{ti}</div><div style={{fontSize:11,color:C.muted,lineHeight:1.4}}>{de}</div></div>
       ))}
     </div>
@@ -1082,7 +1305,7 @@ function Config({source,setSource,niveau,setNiveau,themeCP,setThemeCP,themeCPP,s
 }
 
 // ─── CAS SCREEN ───────────────────────────────────────────────────────────────
-function CasScreen({cas,reponses,setReponses,correction,correctionLoading,casLoading,onCorrection,onNewCas,showCorrection,correctionMode}){
+function CasScreen({cas,reponses,setReponses,correction,correctionLoading,casLoading,onCorrection,onNewCas,showCorrection,correctionMode,onSave,onExport,onVoice,voiceActive,onFiche,ficheIA,ficheLoading,showFiche,setShowFiche,dialogHistory,dialogInput,setDialogInput,onDialog,dialogLoading,showDialog,setShowDialog,setArticleModal,favoris,onToggleFavori}){
   const questions = cas.questions||[];
   const hasAnyResponse = Object.values(reponses).some(r=>r&&r.trim());
   const answeredCount = Object.values(reponses).filter(r=>r&&r.trim()).length;
@@ -1097,6 +1320,45 @@ function CasScreen({cas,reponses,setReponses,correction,correctionLoading,casLoa
       </div>
       <h2 style={{fontSize:18,fontWeight:800,margin:0}}>{cas.titre}</h2>
     </div>
+
+    {/* Toolbar */}
+    <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+      <button onClick={onSave} style={{...S.btnS,padding:"6px 10px",fontSize:11}}>💾 Sauvegarder</button>
+      <button onClick={onExport} style={{...S.btnS,padding:"6px 10px",fontSize:11}}>📄 Exporter .txt</button>
+      {correction&&<button onClick={onVoice} style={{...S.btnS,padding:"6px 10px",fontSize:11,color:voiceActive?C.green:C.text}}>{voiceActive?"⏹ Stop":"🔊 Lire"}</button>}
+      {correction&&<button onClick={onFiche} style={{...S.btnS,padding:"6px 10px",fontSize:11}}>📋 Fiche révision</button>}
+      {correction&&<button onClick={()=>setShowDialog(v=>!v)} style={{...S.btnS,padding:"6px 10px",fontSize:11,color:showDialog?C.gold:C.text}}>🗣️ Dialoguer</button>}
+    </div>
+
+    {/* Fiche de révision */}
+    {showFiche&&<div style={{...S.card,border:`1px solid ${C.gold}50`,marginBottom:10}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+        <span style={{fontWeight:700,color:C.gold,fontSize:13}}>📋 Fiche de révision — {cas.infraction_principale||cas.theme}</span>
+        <button onClick={()=>setShowFiche(false)} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:16}}>✕</button>
+      </div>
+      {ficheLoading?<div style={{color:C.muted,fontSize:12}}>⏳ Génération de la fiche...</div>:<CorrectionDisplay text={ficheIA}/>}
+    </div>}
+
+    {/* Dialogue IA */}
+    {showDialog&&<div style={{...S.card,border:`1px solid ${C.gold}40`,marginBottom:10}}>
+      <div style={{fontWeight:700,color:C.gold,fontSize:13,marginBottom:10}}>🗣️ Dialogue avec L&apos;OPJ</div>
+      <div style={{maxHeight:200,overflowY:"auto",marginBottom:8,display:"flex",flexDirection:"column",gap:6}}>
+        {dialogHistory.length===0&&<p style={{fontSize:11,color:C.muted,margin:0}}>Posez une question sur ce cas, les qualifications, la procédure...</p>}
+        {dialogHistory.map((m,i)=>(
+          <div key={i} style={{padding:"6px 10px",borderRadius:8,fontSize:12,lineHeight:1.6,
+            background:m.role==="user"?`${C.gold}18`:C.bg,
+            alignSelf:m.role==="user"?"flex-end":"flex-start",
+            maxWidth:"88%",color:m.role==="user"?C.gold:C.text}}>
+            {m.content}
+          </div>
+        ))}
+        {dialogLoading&&<div style={{fontSize:11,color:C.muted,alignSelf:"flex-start"}}>⏳ L&apos;OPJ réfléchit...</div>}
+      </div>
+      <div style={{display:"flex",gap:6}}>
+        <input value={dialogInput} onChange={e=>setDialogInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&onDialog()} placeholder="Votre question..." style={{...S.input,fontSize:12}}/>
+        <button onClick={onDialog} disabled={dialogLoading||!dialogInput.trim()} style={{...S.btnP,padding:"8px 12px",fontSize:12}}>➤</button>
+      </div>
+    </div>}
 
     {/* Faits */}
     <div style={S.card}>
@@ -1178,30 +1440,81 @@ function CasScreen({cas,reponses,setReponses,correction,correctionLoading,casLoa
 }
 
 // ─── STATS ────────────────────────────────────────────────────────────────────
-function Stats({stats,historique}){
+function Stats({stats,historique,heatmapData,casSauvegardes,favoris,onCharger,onSupprimer,onToggleFavori,showSauvegardes,setShowSauvegardes}){
   const mention=!stats.corriges?null:stats.score>=16?{l:"Excellent ✨",c:C.green}:stats.score>=14?{l:"Bien 👍",c:"#84cc16"}:stats.score>=12?{l:"Assez bien",c:C.warn}:stats.score>=10?{l:"Passable",c:"#f97316"}:{l:"Insuffisant",c:C.red};
+  const [statsView,setStatsView]=useState("scores");
   return <div style={S.pad}>
     <h2 style={S.pageTitle}>📊 Statistiques</h2>
-    <div style={S.row4}>
-      {[["Cas générés",stats.total,"📋"],["Cas corrigés",stats.corriges,"✅"],["Score moyen",stats.corriges?`${stats.score}/20`:"—","🏆"],["Taux",stats.total?`${Math.round(stats.corriges/stats.total*100)}%`:"0%","📈"]].map(([l,v,ic])=>(
-        <div key={l} style={{...S.statCard,padding:"14px 8px"}}><div style={{fontSize:26}}>{ic}</div><div style={{fontSize:24,fontWeight:900,color:C.gold}}>{v}</div><div style={{fontSize:10,color:C.muted}}>{l}</div></div>
+    <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
+      {[["scores","📊 Scores"],["heatmap","🔥 Carte thématique"],["sauvegardes","💾 Sauvegardés"]].map(([k,l])=>(
+        <button key={k} onClick={()=>setStatsView(k)} style={{...S.tog,...(statsView===k?S.togA:{}),fontSize:11}}>{l}</button>
       ))}
     </div>
-    {mention&&<div style={{textAlign:"center",padding:"10px",background:`${mention.c}18`,border:`1px solid ${mention.c}35`,borderRadius:10,marginBottom:18,fontSize:15,fontWeight:700,color:mention.c}}>{mention.l}</div>}
-    {historique.length>0?<div>
-      <h3 style={S.secTitle}>📋 Historique complet</h3>
-      {historique.map((h,i)=><div key={i} style={S.hItem}>
-        <div style={{display:"flex",gap:6,alignItems:"center",flex:1,minWidth:0}}>
-          <span style={{fontSize:10,color:C.dim}}>#{historique.length-i}</span>
-          <span style={S.badge}>{h.source}</span>
-          <span style={{fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.titre}</span>
-        </div>
-        <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:1}}>
-          <span style={{fontWeight:800,fontSize:14,color:h.score>=14?C.green:h.score>=10?C.warn:C.red}}>{h.score}/20</span>
-          <span style={{fontSize:10,color:C.dim}}>{h.date}</span>
-        </div>
-      </div>)}
-    </div>:<div style={{textAlign:"center",padding:40,color:C.muted}}><div style={{fontSize:36,marginBottom:10}}>📋</div><p>Aucun cas corrigé pour l'instant.</p></div>}
+    {statsView==="scores"&&<>
+      <div style={S.row4}>
+        {[["Cas générés",stats.total,"📋"],["Cas corrigés",stats.corriges,"✅"],["Score moyen",stats.corriges?`${stats.score}/20`:"—","🏆"],["Taux",stats.total?`${Math.round(stats.corriges/stats.total*100)}%`:"0%","📈"]].map(([l,v,ic])=>(
+          <div key={l} style={{...S.statCard,padding:"14px 8px"}}><div style={{fontSize:26}}>{ic}</div><div style={{fontSize:24,fontWeight:900,color:C.gold}}>{v}</div><div style={{fontSize:10,color:C.muted}}>{l}</div></div>
+        ))}
+      </div>
+      {mention&&<div style={{textAlign:"center",padding:"10px",background:`${mention.c}18`,border:`1px solid ${mention.c}35`,borderRadius:10,marginBottom:18,fontSize:15,fontWeight:700,color:mention.c}}>{mention.l}</div>}
+      {historique.length>0?<div>
+        <h3 style={S.secTitle}>📋 Historique complet</h3>
+        {historique.map((h,i)=><div key={i} style={S.hItem}>
+          <div style={{display:"flex",gap:6,alignItems:"center",flex:1,minWidth:0}}>
+            <span style={{fontSize:10,color:C.dim}}>#{historique.length-i}</span>
+            <span style={S.badge}>{h.source}</span>
+            <span style={{fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.titre}</span>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:1}}>
+            <span style={{fontWeight:800,fontSize:14,color:h.score>=14?C.green:h.score>=10?C.warn:C.red}}>{h.score}/20</span>
+            <span style={{fontSize:10,color:C.dim}}>{h.date}</span>
+          </div>
+        </div>)}
+      </div>:<div style={{textAlign:"center",padding:40,color:C.muted}}><div style={{fontSize:36,marginBottom:10}}>📋</div><p>Aucun cas corrigé pour l&apos;instant.</p></div>}
+    </>}
+
+    {statsView==="heatmap"&&<>
+      <h3 style={S.secTitle}>🔥 Maîtrise par thème</h3>
+      {heatmapData.length===0?<div style={{textAlign:"center",padding:32,color:C.muted}}><p>Corrigez des cas pour voir votre carte thématique.</p></div>:
+        heatmapData.map((d,i)=>{
+          const pct=Math.min(100,Math.round((d.avg/20)*100));
+          const col=d.avg>=14?C.green:d.avg>=10?C.warn:C.red;
+          return <div key={i} style={{marginBottom:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+              <span style={{fontSize:12,color:C.text}}>{d.theme}</span>
+              <span style={{fontSize:11,color:col,fontWeight:700}}>{d.avg}/20 <span style={{color:C.dim,fontWeight:400}}>({d.total} cas)</span></span>
+            </div>
+            <div style={{background:C.border,borderRadius:4,height:8,overflow:"hidden"}}>
+              <div style={{width:`${pct}%`,height:"100%",background:col,borderRadius:4,transition:"width .6s ease"}}/>
+            </div>
+          </div>;
+        })
+      }
+    </>}
+
+    {statsView==="sauvegardes"&&<>
+      <h3 style={S.secTitle}>💾 Cas sauvegardés ({casSauvegardes.length})</h3>
+      {casSauvegardes.length===0?<div style={{textAlign:"center",padding:32,color:C.muted}}><p>Aucun cas sauvegardé. Sauvegardez un cas depuis l&apos;écran de correction.</p></div>:
+        casSauvegardes.map((entry,i)=>(
+          <div key={entry.id} style={{...S.hItem,flexDirection:"column",alignItems:"stretch",gap:6}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{display:"flex",gap:6,alignItems:"center",minWidth:0,flex:1}}>
+                <button onClick={()=>onToggleFavori(entry.id)} style={{background:"none",border:"none",cursor:"pointer",fontSize:14,padding:0}}>
+                  {favoris.includes(entry.id)?"⭐":"☆"}
+                </button>
+                <span style={S.badge}>{entry.source}</span>
+                <span style={{fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{entry.titre}</span>
+              </div>
+              <div style={{display:"flex",gap:4,alignItems:"center",flexShrink:0}}>
+                <span style={{fontSize:10,color:C.dim}}>{entry.date}</span>
+                <button onClick={()=>onCharger(entry)} style={{...S.btnP,padding:"3px 8px",fontSize:10}}>Charger</button>
+                <button onClick={()=>onSupprimer(entry.id)} style={{...S.btnS,padding:"3px 8px",fontSize:10,color:C.red}}>✕</button>
+              </div>
+            </div>
+          </div>
+        ))
+      }
+    </>}
   </div>;
 }
 
@@ -1284,5 +1597,103 @@ function Lexique({query,setQuery,result,localResult,loading,onSearch,allTerms}){
       })}
       {termesByLetter(lettre).length===0&&<div style={{textAlign:"center",padding:24,color:C.muted}}>Aucun terme pour la lettre {lettre}.</div>}
     </>}
+  </div>;
+}
+
+// ─── PROCÉDURE ───────────────────────────────────────────────────────────────
+const PROCEDURES = {
+  garde_a_vue: {
+    titre:"Garde à vue (Art. 118-136 CPP)",
+    couleur:"#3b82f6",
+    etapes:[
+      {icon:"🚔",titre:"Interpellation",desc:"L'OPJ appréhende la personne en flagrant délit ou sur commission rogatoire. Identité vérifiée sur place."},
+      {icon:"⏱️",titre:"Notification des droits",desc:"La personne est informée immédiatement : motif, durée max (48h), droit au silence, droit à un avocat dès la 1ère heure."},
+      {icon:"📋",titre:"Procès-verbal d'interpellation",desc:"L'OPJ dresse un PV mentionnant : identité, date/heure, lieu, motif de l'interpellation."},
+      {icon:"👨‍⚖️",titre:"Information du Procureur",desc:"Le Parquet est informé dans les 24h. Le Procureur peut ordonner la levée immédiate ou autoriser la prolongation."},
+      {icon:"🕐",titre:"Durée initiale : 48h",desc:"La garde à vue ne peut excéder 48h (Art.119 CPP). Elle court à partir de la privation de liberté effective."},
+      {icon:"🔄",titre:"Prolongation possible",desc:"Sur autorisation écrite du Procureur : 24h supplémentaires. En matière de terrorisme : 15 jours renouvelables une fois."},
+      {icon:"📝",titre:"Audition & PV de garde à vue",desc:"Auditions consignées dans des PV signés. La personne peut refuser de répondre. L'avocat peut assister aux auditions."},
+      {icon:"🔚",titre:"Issue de la garde à vue",desc:"Soit libération (classement), soit déferrement au Parquet avec le dossier complet pour suite à donner."},
+    ]
+  },
+  detention_provisoire: {
+    titre:"Détention provisoire (Art. 218-246 CPP)",
+    couleur:"#ef4444",
+    etapes:[
+      {icon:"📋",titre:"Inculpation par le Juge d'Instruction",desc:"Après déferrement, le JI entend la personne, lui notifie les charges et peut décerner un mandat de détention provisoire."},
+      {icon:"⚖️",titre:"Conditions",desc:"Infraction punie d'au moins 2 ans d'emprisonnement. Nécessité pour la sécurité publique ou éviter destruction de preuves, fuite, ou pression sur témoins."},
+      {icon:"⏱️",titre:"Durée maximale en matière correctionnelle",desc:"6 mois renouvelables une fois = 1 an maximum. Au-delà : mise en liberté d'office sauf crime."},
+      {icon:"⏱️",titre:"Durée maximale en matière criminelle",desc:"Pas de limite fixe. Soumise au contrôle de la Chambre de Contrôle de l'Instruction."},
+      {icon:"👨‍⚖️",titre:"Contrôle judiciaire",desc:"La Chambre de Contrôle de l'Instruction contrôle la légalité. L'inculpé peut à tout moment demander sa mise en liberté."},
+      {icon:"🔓",titre:"Mise en liberté provisoire",desc:"Sur demande de l'inculpé, du Procureur ou d'office. Avec ou sans caution. Contrôle judiciaire possible en substitution."},
+      {icon:"🔚",titre:"Issue",desc:"Renvoi en jugement (ordonnance de renvoi) ou non-lieu (ordonnance de non-lieu) avec remise en liberté immédiate."},
+    ]
+  },
+  jugement: {
+    titre:"Déroulement du jugement (Art. 336-424 CPP)",
+    couleur:"#c8a84b",
+    etapes:[
+      {icon:"📬",titre:"Citation/Convocation",desc:"Le prévenu est cité à comparaître par exploit d'huissier ou convocation du Parquet. Délai minimum : 3 jours francs."},
+      {icon:"🏛️",titre:"Audience d'ouverture",desc:"Appel des causes. Vérification des présences. Le président s'assure de l'identité du prévenu et de la régularité de la procédure."},
+      {icon:"📋",titre:"Lecture de la prévention",desc:"Le Greffier lit l'acte de prévention (les faits reprochés et leur qualification juridique)."},
+      {icon:"🗣️",titre:"Réquisitoire du Ministère Public",desc:"Le Procureur expose les faits, les preuves et requiert une peine. Il peut requérir l'acquittement si insuffisance de preuves."},
+      {icon:"👨‍💼",titre:"Plaidoirie de la défense",desc:"L'avocat de la défense présente ses arguments, conteste les preuves et plaide pour son client. Le prévenu a le dernier mot."},
+      {icon:"⚖️",titre:"Délibéré",desc:"Le tribunal se retire pour délibérer. À huis clos. Le verdict doit être motivé en fait et en droit."},
+      {icon:"📜",titre:"Prononcé du jugement",desc:"Condamnation (peine principale ± complémentaires) ou relaxe/acquittement. Le jugement est rendu publiquement."},
+      {icon:"📣",titre:"Voies de recours",desc:"Appel devant la Cour d'Appel dans les 10 jours du jugement. Pourvoi en cassation devant la Cour Suprême (questions de droit uniquement)."},
+    ]
+  },
+  flagrant_delit: {
+    titre:"Enquête en flagrant délit (Art. 103-117 CPP)",
+    couleur:"#f59e0b",
+    etapes:[
+      {icon:"👁️",titre:"Constatation du flagrant délit",desc:"L'infraction est en train de se commettre ou vient de se commettre. Ou : la personne est poursuivie par la clameur publique ou trouvée en possession d'objets suspects."},
+      {icon:"🔒",titre:"Saisine de l'OPJ",desc:"Tout officier de police judiciaire peut se saisir d'office. Il informe immédiatement le Procureur."},
+      {icon:"🔍",titre:"Constatations",desc:"L'OPJ dresse un PV de constatations : description des lieux, objets saisis, témoignages immédiats. Transport sur les lieux obligatoire."},
+      {icon:"🧪",titre:"Réquisitions d'expertise",desc:"L'OPJ peut requérir toute personne qualifiée pour procéder à des examens techniques (médecin légiste, expert comptable...)."},
+      {icon:"🏠",titre:"Perquisition",desc:"En flagrant délit, la perquisition peut être effectuée sans l'autorisation du JI. Elle doit respecter les horaires légaux (6h-21h sauf urgence)."},
+      {icon:"📋",titre:"Garde à vue",desc:"Si nécessaire, la personne appréhendée est placée en garde à vue selon les modalités des Art.118-136 CPP."},
+      {icon:"📁",titre:"Clôture & transmission",desc:"L'OPJ clôture l'enquête et transmet le dossier au Procureur dans les 48h suivant le début des opérations."},
+    ]
+  }
+};
+
+function Procedure({procedureType,setProcedureType}){
+  const types = Object.keys(PROCEDURES);
+  const proc = PROCEDURES[procedureType];
+  const [etapeActive,setEtapeActive]=useState(null);
+  return <div style={S.pad}>
+    <h2 style={S.pageTitle}>🔄 Schémas de procédure</h2>
+    <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:18}}>
+      {types.map(k=>(
+        <button key={k} onClick={()=>{setProcedureType(k);setEtapeActive(null);}}
+          style={{...S.tog,...(procedureType===k?{...S.togA,background:PROCEDURES[k].couleur,borderColor:PROCEDURES[k].couleur}:{}),fontSize:11}}>
+          {PROCEDURES[k].titre.split(" (")[0]}
+        </button>
+      ))}
+    </div>
+    <div style={{background:C.surface,border:`2px solid ${proc.couleur}50`,borderRadius:14,padding:16,marginBottom:10}}>
+      <h3 style={{color:proc.couleur,fontWeight:800,fontSize:15,margin:"0 0 16px"}}>{proc.titre}</h3>
+      <div style={{display:"flex",flexDirection:"column",gap:0}}>
+        {proc.etapes.map((e,i)=>(
+          <div key={i}>
+            <div onClick={()=>setEtapeActive(etapeActive===i?null:i)}
+              style={{display:"flex",gap:10,alignItems:"flex-start",cursor:"pointer",padding:"8px 0",borderBottom:i<proc.etapes.length-1?`1px dashed ${C.border}`:"none"}}>
+              <div style={{minWidth:32,height:32,borderRadius:"50%",background:`${proc.couleur}25`,border:`2px solid ${proc.couleur}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>
+                {e.icon}
+              </div>
+              <div style={{flex:1}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span style={{fontWeight:700,fontSize:13,color:etapeActive===i?proc.couleur:C.text}}>{i+1}. {e.titre}</span>
+                  <span style={{color:C.dim,fontSize:12}}>{etapeActive===i?"▲":"▼"}</span>
+                </div>
+                {etapeActive===i&&<p style={{fontSize:12,color:C.muted,lineHeight:1.7,margin:"6px 0 0"}}>{e.desc}</p>}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+    <p style={{fontSize:11,color:C.dim,textAlign:"center"}}>Cliquez sur une étape pour développer les détails · Références CPP camerounais</p>
   </div>;
 }
