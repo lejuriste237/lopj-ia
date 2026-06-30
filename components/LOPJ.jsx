@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 
 // ─── DESIGN TOKENS ────────────────────────────────────────────────────────────
 const C={bg:"#0f1419",surface:"#1a2332",border:"#2d3f55",gold:"#c8a84b",text:"#e2e8f0",muted:"#94a3b8",dim:"#64748b",green:"#22c55e",warn:"#f59e0b",red:"#ef4444",blue:"#60a5fa",purple:"#a78bfa"};
@@ -658,29 +658,22 @@ const CP_THEMES=["Tous les thèmes","Théorie générale de l'infraction","Peine
 const CPP_THEMES=["Tous les thèmes","Enquête préliminaire et flagrant délit","Garde à vue","Instruction préparatoire","Mandats de justice","Détention provisoire","Mise en examen et inculpation","Compétence des juridictions","Jugement et délibéré","Voies de recours","Droits de la défense","Exécution des peines","Preuves et expertises","Partie civile"];
 const NIVEAUX=["Débutant","Intermédiaire","Avancé","Expert"];
 
-// ─── API ─────────────────────────────────────────────────────────────────────
-// ─── MISTRAL via Claude proxy ─────────────────────────────────────────────────
-// L'API Mistral bloque les appels directs depuis le navigateur (CORS).
-// Solution : on demande à Claude d'appeler Mistral en son nom via un system prompt spécial,
-// ou on appelle Mistral directement si le navigateur le permet (hors artifact).
-async function callMistralDirect(messages, system, max_tokens, mistralKey) {
-  const r = await fetch("https://api.mistral.ai/v1/chat/completions", {
-    method:"POST",
-    headers:{"Content-Type":"application/json","Authorization":`Bearer ${mistralKey}`},
-    body:JSON.stringify({
-      model:"mistral-large-latest",
-      max_tokens,
-      messages:[{role:"system",content:system},...messages]
-    })
-  });
-  if(!r.ok) {
-    const err = await r.json().catch(()=>({error:{message:`HTTP ${r.status}`}}));
-    throw new Error(err.error?.message || `Erreur Mistral HTTP ${r.status}`);
-  }
-  const d = await r.json();
-  if(d.error) throw new Error(d.error.message||JSON.stringify(d.error));
-  return d.choices[0].message.content;
-}
+// ─── API MULTI-PROVIDERS ───────────────────────────────────────────────────────
+// Chaque provider a sa propre fonction d'appel + sa propre clé API stockée côté client.
+// Claude (Anthropic) fonctionne nativement sans clé dans cet artifact (proxy intégré).
+// Tous les autres nécessitent une clé API personnelle fournie par l'utilisateur.
+
+const PROVIDERS = {
+  claude:  { label:"Claude (Anthropic)",  icon:"🤖", color:"#4f46e5", needsKey:false, keyPlaceholder:"", keyHelp:"", keyUrl:"" },
+  mistral: { label:"Mistral AI",          icon:"🔥", color:"#ff7000", needsKey:true,  keyPlaceholder:"Clé API Mistral", keyHelp:"console.mistral.ai", keyUrl:"https://console.mistral.ai" },
+  openai:  { label:"OpenAI (GPT)",        icon:"🟢", color:"#10a37f", needsKey:true,  keyPlaceholder:"sk-...", keyHelp:"platform.openai.com", keyUrl:"https://platform.openai.com/api-keys" },
+  groq:    { label:"Groq",                icon:"⚡", color:"#f55036", needsKey:true,  keyPlaceholder:"gsk_...", keyHelp:"console.groq.com", keyUrl:"https://console.groq.com/keys" },
+  gemini:  { label:"Google Gemini",       icon:"💎", color:"#4285f4", needsKey:true,  keyPlaceholder:"AIza...", keyHelp:"aistudio.google.com", keyUrl:"https://aistudio.google.com/apikey" },
+  cohere:  { label:"Cohere",              icon:"🟣", color:"#a78bfa", needsKey:true,  keyPlaceholder:"co-...", keyHelp:"dashboard.cohere.com", keyUrl:"https://dashboard.cohere.com/api-keys" },
+  xai:        { label:"xAI (Grok)",          icon:"✖️", color:"#1d1d1d", needsKey:true,  keyPlaceholder:"xai-...", keyHelp:"console.x.ai", keyUrl:"https://console.x.ai" },
+  openrouter: { label:"OpenRouter",           icon:"🌐", color:"#8b5cf6", needsKey:true,  needsModel:true, defaultModel:"anthropic/claude-sonnet-4", keyPlaceholder:"sk-or-v1-...", keyHelp:"openrouter.ai/keys", keyUrl:"https://openrouter.ai/keys" },
+  custom:     { label:"API personnalisée",   icon:"🔧", color:"#64748b", needsKey:true,  keyPlaceholder:"Clé API", keyHelp:"URL + clé requis", keyUrl:"" },
+};
 
 async function callClaudeProxy(messages, system, max_tokens) {
   const r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -693,45 +686,140 @@ async function callClaudeProxy(messages, system, max_tokens) {
   return d.content.map(b=>b.text||"").join("");
 }
 
-// Proxy Claude→Mistral : Claude relaie la requête vers Mistral en incluant la clé
-async function callMistralViaClaudeProxy(messages, system, max_tokens, mistralKey) {
-  const proxySystem = `Tu es un assistant relayant des requêtes vers Mistral AI. 
-L'utilisateur va te donner une requête à exécuter EXACTEMENT avec la clé API Mistral fournie.
-Appelle l'API Mistral avec: POST https://api.mistral.ai/v1/chat/completions
-Authorization: Bearer ${mistralKey}
-model: mistral-large-latest
-Retourne UNIQUEMENT la réponse du modèle Mistral, sans aucun commentaire.`;
-  // Dans un artifact Claude, on ne peut pas vraiment relayer vers Mistral via Claude.
-  // Donc on utilise Claude directement avec un système prompt indiquant "style Mistral".
-  const mistralStyleSystem = system + "\n\n[Traitement via moteur IA avancé]";
-  return callClaudeProxy(messages, mistralStyleSystem, max_tokens);
+async function callMistral(messages, system, max_tokens, key) {
+  const r = await fetch("https://api.mistral.ai/v1/chat/completions", {
+    method:"POST",
+    headers:{"Content-Type":"application/json","Authorization":`Bearer ${key}`},
+    body:JSON.stringify({model:"mistral-large-latest", max_tokens, messages:[{role:"system",content:system},...messages]})
+  });
+  if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e.error?.message||`HTTP ${r.status}`); }
+  const d = await r.json();
+  return d.choices[0].message.content;
+}
+
+async function callOpenAI(messages, system, max_tokens, key) {
+  const r = await fetch("https://api.openai.com/v1/chat/completions", {
+    method:"POST",
+    headers:{"Content-Type":"application/json","Authorization":`Bearer ${key}`},
+    body:JSON.stringify({model:"gpt-4o", max_tokens, messages:[{role:"system",content:system},...messages]})
+  });
+  if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e.error?.message||`HTTP ${r.status}`); }
+  const d = await r.json();
+  return d.choices[0].message.content;
+}
+
+async function callGroq(messages, system, max_tokens, key) {
+  const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method:"POST",
+    headers:{"Content-Type":"application/json","Authorization":`Bearer ${key}`},
+    body:JSON.stringify({model:"llama-3.3-70b-versatile", max_tokens, messages:[{role:"system",content:system},...messages]})
+  });
+  if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e.error?.message||`HTTP ${r.status}`); }
+  const d = await r.json();
+  return d.choices[0].message.content;
+}
+
+async function callGemini(messages, system, max_tokens, key) {
+  const userText = messages.map(m=>m.content).join("\n");
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`, {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({
+      contents:[{parts:[{text:userText}]}],
+      systemInstruction:{parts:[{text:system}]},
+      generationConfig:{maxOutputTokens:max_tokens}
+    })
+  });
+  if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e.error?.message||`HTTP ${r.status}`); }
+  const d = await r.json();
+  return d.candidates?.[0]?.content?.parts?.[0]?.text || "";
+}
+
+async function callCohere(messages, system, max_tokens, key) {
+  const userText = messages.map(m=>m.content).join("\n");
+  const r = await fetch("https://api.cohere.com/v1/chat", {
+    method:"POST",
+    headers:{"Content-Type":"application/json","Authorization":`Bearer ${key}`},
+    body:JSON.stringify({model:"command-r-plus", message:userText, preamble:system, max_tokens})
+  });
+  if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e.message||`HTTP ${r.status}`); }
+  const d = await r.json();
+  return d.text || "";
+}
+
+async function callXAI(messages, system, max_tokens, key) {
+  const r = await fetch("https://api.x.ai/v1/chat/completions", {
+    method:"POST",
+    headers:{"Content-Type":"application/json","Authorization":`Bearer ${key}`},
+    body:JSON.stringify({model:"grok-4", max_tokens, messages:[{role:"system",content:system},...messages]})
+  });
+  if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e.error?.message||`HTTP ${r.status}`); }
+  const d = await r.json();
+  return d.choices[0].message.content;
+}
+
+async function callOpenRouter(messages, system, max_tokens, key, model) {
+  const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method:"POST",
+    headers:{
+      "Content-Type":"application/json",
+      "Authorization":`Bearer ${key}`,
+      "HTTP-Referer":"https://claude.ai",
+      "X-Title":"L'OPJ - Droit Penal Camerounais"
+    },
+    body:JSON.stringify({
+      model: model || "anthropic/claude-sonnet-4",
+      max_tokens,
+      messages:[{role:"system",content:system},...messages]
+    })
+  });
+  if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e.error?.message||`HTTP ${r.status}`); }
+  const d = await r.json();
+  if(d.error) throw new Error(d.error.message||JSON.stringify(d.error));
+  return d.choices[0].message.content;
+}
+
+async function callCustom(messages, system, max_tokens, key, customUrl, customModel) {
+  if(!customUrl) throw new Error("URL d'API personnalisée manquante");
+  const r = await fetch(customUrl, {
+    method:"POST",
+    headers:{"Content-Type":"application/json","Authorization":`Bearer ${key}`},
+    body:JSON.stringify({model:customModel||"default", max_tokens, messages:[{role:"system",content:system},...messages]})
+  });
+  if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e.error?.message||`HTTP ${r.status}`); }
+  const d = await r.json();
+  return d.choices?.[0]?.message?.content || d.content?.[0]?.text || d.text || JSON.stringify(d).slice(0,500);
 }
 
 async function callAI(messages, system, max_tokens=1200, apiConfig={}) {
-  const {provider="claude", mistralKey=""} = apiConfig;
-  
-  if(provider==="mistral" && mistralKey) {
-    // Tentative appel direct Mistral
-    try {
-      return await callMistralDirect(messages, system, max_tokens, mistralKey);
-    } catch(e) {
-      // CORS ou réseau : l'API Mistral bloque les appels depuis le navigateur dans cet artifact.
-      // On bascule sur Claude avec notification dans la réponse.
-      const isCorsOrNetwork = e.message.includes("Failed to fetch") || 
-                               e.message.includes("NetworkError") || 
-                               e.message.includes("CORS") ||
-                               e.message.includes("fetch");
-      if(isCorsOrNetwork) {
-        // Fallback Claude avec note
-        const fallbackSystem = system + "\n\n⚠️ NOTE: Mistral AI n'est pas accessible directement depuis cet environnement (restriction CORS navigateur). Réponse générée par Claude Sonnet comme alternative. Pour utiliser Mistral, exportez ce projet et appelez l'API depuis un serveur backend.";
-        return callClaudeProxy(messages, fallbackSystem, max_tokens);
-      }
-      throw e;
-    }
+  const {provider="claude", apiKeys={}, customUrl="", customModel="", openrouterModel=""} = apiConfig;
+  const key = apiKeys[provider] || "";
+  const cfg = PROVIDERS[provider] || PROVIDERS.claude;
+
+  if(cfg.needsKey && !key) {
+    // Pas de clé fournie → fallback Claude avec note
+    const fallbackSystem = system + `\n\n⚠️ NOTE: Aucune clé API ${cfg.label} fournie. Réponse générée par Claude Sonnet comme alternative. Renseignez votre clé dans le panneau "🔑 Configuration API".`;
+    return callClaudeProxy(messages, fallbackSystem, max_tokens);
   }
-  
-  // Défaut : Claude
-  return callClaudeProxy(messages, system, max_tokens);
+
+  try {
+    switch(provider) {
+      case "mistral": return await callMistral(messages, system, max_tokens, key);
+      case "openai":  return await callOpenAI(messages, system, max_tokens, key);
+      case "groq":    return await callGroq(messages, system, max_tokens, key);
+      case "gemini":  return await callGemini(messages, system, max_tokens, key);
+      case "cohere":  return await callCohere(messages, system, max_tokens, key);
+      case "xai":        return await callXAI(messages, system, max_tokens, key);
+      case "openrouter": return await callOpenRouter(messages, system, max_tokens, key, openrouterModel || PROVIDERS.openrouter.defaultModel);
+      case "custom":     return await callCustom(messages, system, max_tokens, key, customUrl, customModel);
+      default:        return await callClaudeProxy(messages, system, max_tokens);
+    }
+  } catch(e) {
+    const isCorsOrNetwork = /Failed to fetch|NetworkError|CORS|fetch/.test(e.message||"");
+    const reason = isCorsOrNetwork ? "restriction CORS du navigateur dans cet environnement" : (e.message||"erreur inconnue");
+    const fallbackSystem = system + `\n\n⚠️ NOTE: ${cfg.label} n'a pas pu être contacté (${reason}). Réponse générée par Claude Sonnet comme alternative. Pour un accès natif à ${cfg.label}, déployez ce code sur un backend.`;
+    return callClaudeProxy(messages, fallbackSystem, max_tokens);
+  }
 }
 
 // ─── MAIN APP ────────────────────────────────────────────────────────────────
@@ -755,9 +843,27 @@ export default function LOPJ() {
   const [lexiqueLoading, setLexiqueLoading] = useState(false);
   const [lexiqueLocalResult, setLexiqueLocalResult] = useState(null);
   // API config
-  const [apiProvider, setApiProvider] = useState("claude");
-  const [mistralKey, setMistralKey] = useState("");
+  const [apiProvider, setApiProvider] = useState(()=>{try{return localStorage.getItem("lopj_provider")||"claude"}catch{return "claude"}});
+  const [apiKeys, setApiKeys] = useState(()=>{try{return JSON.parse(localStorage.getItem("lopj_apikeys")||"{}")}catch{return {}}});
+  const [customUrl, setCustomUrl] = useState(()=>{try{return localStorage.getItem("lopj_customurl")||""}catch{return ""}});
+  const [customModel, setCustomModel] = useState(()=>{try{return localStorage.getItem("lopj_custommodel")||""}catch{return ""}});
+  const [openrouterModel, setOpenrouterModel] = useState(()=>{try{return localStorage.getItem("lopj_openroutermodel")||"anthropic/claude-sonnet-4"}catch{return "anthropic/claude-sonnet-4"}});
   const [showKeyInput, setShowKeyInput] = useState(false);
+
+  const updateProvider = useCallback((p)=>{
+    setApiProvider(p);
+    try{localStorage.setItem("lopj_provider", p);}catch{}
+  }, []);
+  const updateApiKey = useCallback((provider, key)=>{
+    setApiKeys(prev=>{
+      const next = {...prev, [provider]: key};
+      try{localStorage.setItem("lopj_apikeys", JSON.stringify(next));}catch{}
+      return next;
+    });
+  }, []);
+  const updateCustomUrl = useCallback((url)=>{ setCustomUrl(url); try{localStorage.setItem("lopj_customurl", url);}catch{} }, []);
+  const updateCustomModel = useCallback((m)=>{ setCustomModel(m); try{localStorage.setItem("lopj_custommodel", m);}catch{} }, []);
+  const updateOpenrouterModel = useCallback((m)=>{ setOpenrouterModel(m); try{localStorage.setItem("lopj_openroutermodel", m);}catch{} }, []);
   // ── Nouvelles fonctionnalités ──
   const [casSauvegardes, setCasSauvegardes] = useState(()=>{try{return JSON.parse(localStorage.getItem("lopj_sauvegardes")||"[]")}catch{return []}});
   const [favoris, setFavoris] = useState(()=>{try{return JSON.parse(localStorage.getItem("lopj_favoris")||"[]")}catch{return []}});
@@ -772,7 +878,7 @@ export default function LOPJ() {
   const [voiceActive, setVoiceActive] = useState(false);
   const [articleModal, setArticleModal] = useState(null);
 
-  const apiConfig = {provider: apiProvider, mistralKey};
+  const apiConfig = {provider: apiProvider, apiKeys, customUrl, customModel, openrouterModel};
 
   // ── Sauvegarde locale ──
   const sauvegarderCas = useCallback(() => {
@@ -821,15 +927,184 @@ export default function LOPJ() {
     URL.revokeObjectURL(url);
   }, [cas, reponses, correction]);
 
-  // ── Synthèse vocale ──
-  const lireCorrection = useCallback(() => {
-    if(!correction||!window.speechSynthesis) return;
-    if(voiceActive){ window.speechSynthesis.cancel(); setVoiceActive(false); return; }
-    const utt = new SpeechSynthesisUtterance(correction.replace(/[🎯✅🔍📖⚖️🏛️💡📝🔴🟡🟢]/g,""));
-    utt.lang="fr-FR"; utt.rate=0.9; utt.pitch=1;
-    utt.onend=()=>setVoiceActive(false); utt.onerror=()=>setVoiceActive(false);
-    setVoiceActive(true); window.speechSynthesis.speak(utt);
-  }, [correction, voiceActive]);
+  // ── Synthèse vocale ──────────────────────────────────────────────────────
+  const [voiceSupported, setVoiceSupported] = useState(null); // null = pas encore testé
+  const [voiceError, setVoiceError] = useState("");
+  const [voiceList, setVoiceList] = useState([]);
+  const [voiceWhich, setVoiceWhich] = useState(null); // quel texte est en cours: "faits"|"questions"|"correction"|null
+  const voiceRef = useRef(null);
+  const voiceKeepAlive = useRef(null);
+
+  // Réglages voix persistants
+  const [voiceSettings, setVoiceSettings] = useState(()=>{
+    try{ return JSON.parse(localStorage.getItem("lopj_voice_settings")||"null") || {voiceURI:"", rate:0.95, pitch:1, volume:1}; }
+    catch{ return {voiceURI:"", rate:0.95, pitch:1, volume:1}; }
+  });
+  const updateVoiceSettings = useCallback((patch)=>{
+    setVoiceSettings(prev=>{
+      const next = {...prev, ...patch};
+      try{ localStorage.setItem("lopj_voice_settings", JSON.stringify(next)); }catch{}
+      return next;
+    });
+  }, []);
+
+  // Détection + chargement des voix disponibles (avec polling car certains navigateurs sont lents)
+  useEffect(()=>{
+    if(typeof window==="undefined" || !("speechSynthesis" in window)){
+      setVoiceSupported(false);
+      return;
+    }
+    const synth = window.speechSynthesis;
+    let attempts = 0;
+    const tryLoad = () => {
+      const v = synth.getVoices();
+      if(v && v.length>0){
+        setVoiceList(v);
+        setVoiceSupported(true);
+      } else if(attempts < 10){
+        attempts++;
+        setTimeout(tryLoad, 250);
+      } else {
+        // L'API existe mais ne retourne aucune voix après 2.5s — probable sandbox/restriction
+        setVoiceSupported(v ? true : false);
+        setVoiceList(v||[]);
+      }
+    };
+    tryLoad();
+    const onVoicesChanged = () => { const v=synth.getVoices(); if(v&&v.length>0){ setVoiceList(v); setVoiceSupported(true);} };
+    synth.addEventListener?.("voiceschanged", onVoicesChanged);
+    return ()=>synth.removeEventListener?.("voiceschanged", onVoicesChanged);
+  }, []);
+
+  // Nettoyage de texte pour la lecture (retire emojis, markdown, caractères spéciaux)
+  const nettoyerTexteVocal = useCallback((txt) => (txt||"")
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}]/gu, " ")
+    .replace(/[*_#`~>|]/g, " ")
+    .replace(/Art\.\s*(\d)/g, "Article $1")
+    .replace(/\s{2,}/g, " ")
+    .trim(), []);
+
+  const arreterVoix = useCallback(() => {
+    try{ window.speechSynthesis?.cancel(); }catch{}
+    if(voiceKeepAlive.current){ clearInterval(voiceKeepAlive.current); voiceKeepAlive.current=null; }
+    setVoiceActive(false);
+    setVoiceWhich(null);
+    voiceRef.current = null;
+  }, []);
+
+  // Fonction générique : lit n'importe quel texte (faits, questions, correction...)
+  const lireTexte = useCallback((texteSource, which) => {
+    setVoiceError("");
+
+    if(voiceSupported===false){
+      setVoiceError("La synthèse vocale n'est pas disponible dans cet environnement (navigateur ou sandbox restreint). Essayez d'ouvrir l'app dans un nouvel onglet du navigateur.");
+      return;
+    }
+    if(typeof window==="undefined" || !("speechSynthesis" in window)){
+      setVoiceError("API de synthèse vocale absente sur cet appareil.");
+      return;
+    }
+
+    const synth = window.speechSynthesis;
+
+    // Toggle : si on clique sur la même source en cours de lecture → stop
+    if(voiceActive && voiceWhich===which){
+      arreterVoix();
+      return;
+    }
+
+    // Sinon on coupe toute lecture en cours et on relance sur la nouvelle source
+    synth.cancel();
+    if(voiceKeepAlive.current){ clearInterval(voiceKeepAlive.current); voiceKeepAlive.current=null; }
+
+    const texte = nettoyerTexteVocal(texteSource);
+    if(!texte){ setVoiceError("Rien à lire."); return; }
+
+    // Découpe en chunks — limite fiable cross-navigateur ~200 caractères
+    const CHUNK_SIZE = 200;
+    const chunks = [];
+    let rest = texte;
+    while(rest.length > 0){
+      if(rest.length <= CHUNK_SIZE){ chunks.push(rest); break; }
+      let cut = rest.lastIndexOf(". ", CHUNK_SIZE);
+      if(cut < 50) cut = rest.lastIndexOf(" ", CHUNK_SIZE);
+      if(cut < 1) cut = CHUNK_SIZE;
+      chunks.push(rest.slice(0, cut+1));
+      rest = rest.slice(cut+1);
+    }
+
+    const voices = synth.getVoices();
+    let chosenVoice = null;
+    if(voiceSettings.voiceURI){
+      chosenVoice = voices.find(v=>v.voiceURI===voiceSettings.voiceURI) || null;
+    }
+    if(!chosenVoice){
+      chosenVoice = voices.find(v=>v.lang?.startsWith("fr")) || voices[0] || null;
+    }
+
+    let index = 0;
+    let gotAudioSignal = false;
+
+    const speakNext = () => {
+      if(index >= chunks.length){
+        arreterVoix();
+        return;
+      }
+      const utt = new SpeechSynthesisUtterance(chunks[index]);
+      utt.lang = chosenVoice?.lang || "fr-FR";
+      utt.rate = voiceSettings.rate;
+      utt.pitch = voiceSettings.pitch;
+      utt.volume = voiceSettings.volume;
+      if(chosenVoice) utt.voice = chosenVoice;
+      utt.onstart = () => { gotAudioSignal = true; };
+      utt.onend = () => { index++; speakNext(); };
+      utt.onerror = (e) => {
+        if(e.error==="canceled" || e.error==="interrupted") return;
+        setVoiceError("Erreur de lecture vocale (" + (e.error||"inconnue") + ").");
+        arreterVoix();
+      };
+      voiceRef.current = utt;
+      synth.speak(utt);
+    };
+
+    setVoiceActive(true);
+    setVoiceWhich(which);
+    speakNext();
+
+    // Chrome/certains sandbox : speechSynthesis se met en pause après ~15s d'inactivité de l'onglet
+    // Keep-alive: ping resume() périodiquement pendant la lecture
+    voiceKeepAlive.current = setInterval(()=>{ try{ synth.resume(); }catch{} }, 4000);
+
+    // Détection de silence : si après 1.8s aucun "onstart" n'a été reçu, c'est probablement
+    // un environnement où la synthèse vocale est bloquée silencieusement (sandbox iframe).
+    setTimeout(()=>{
+      if(!gotAudioSignal && synth.speaking===false){
+        setVoiceError("Aucun son détecté. Cet environnement (artifact intégré) peut bloquer l'audio. Essayez d'ouvrir l'app dans un onglet séparé du navigateur (bouton ⤢ en haut de l'artifact).");
+        arreterVoix();
+      }
+    }, 1800);
+  }, [voiceActive, voiceWhich, voiceSettings, voiceSupported, nettoyerTexteVocal, arreterVoix]);
+
+  const lireFaits = useCallback(()=>{ if(cas?.faits) lireTexte(cas.faits, "faits"); }, [cas, lireTexte]);
+  const lireQuestions = useCallback(()=>{
+    if(!cas?.questions?.length) return;
+    const txt = cas.questions.map((q,i)=>`Question ${i+1}. ${q}`).join(". ");
+    lireTexte(txt, "questions");
+  }, [cas, lireTexte]);
+  const lireReponses = useCallback((reponsesObj)=>{
+    if(!cas?.questions?.length) return;
+    const txt = cas.questions.map((q,i)=>{
+      const r = reponsesObj?.[i];
+      return `Question ${i+1}. ${q}. Réponse : ${r&&r.trim() ? r : "non répondue"}.`;
+    }).join(" ");
+    lireTexte(txt, "reponses");
+  }, [cas, lireTexte]);
+  const lireCorrection = useCallback(()=>{ if(correction) lireTexte(correction, "correction"); }, [correction, lireTexte]);
+
+  // Coupe la voix si on quitte l'écran ou change de cas
+  useEffect(()=>{
+    return () => { arreterVoix(); };
+  }, [cas]);
 
   // ── Dialogue de suivi ──
   const envoyerDialogue = useCallback(async () => {
@@ -1144,8 +1419,8 @@ Termine avec 📊 BILAN GLOBAL: score moyen /20 et 💡 À RETENIR: points méth
         </div>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <span className="lopj-zenker" style={{fontSize:10,fontWeight:700,color:C.gold,letterSpacing:.4,whiteSpace:"nowrap"}}>Par Georges Zenker</span>
-          <button onClick={()=>setShowKeyInput(v=>!v)} style={{background:apiProvider==="mistral"?"#ff7000":"#4f46e5",color:"#fff",border:"none",borderRadius:6,padding:"3px 8px",fontSize:10,fontWeight:700,cursor:"pointer"}}>
-            {apiProvider==="mistral"?"🔥 Mistral":"🤖 Claude"}
+          <button onClick={()=>setShowKeyInput(v=>!v)} style={{background:PROVIDERS[apiProvider].color,color:"#fff",border:"none",borderRadius:6,padding:"3px 8px",fontSize:10,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
+            {PROVIDERS[apiProvider].icon} {PROVIDERS[apiProvider].label.split(" ")[0]}
           </button>
           <nav style={S.nav}>
             {TABS.map(([k,icon,title])=>{
@@ -1162,63 +1437,148 @@ Termine avec 📊 BILAN GLOBAL: score moyen /20 et 💡 À RETENIR: points méth
         </div>
       </header>
 
-      {/* API Key Panel */}
+      {/* API Key Panel — Multi-provider */}
       {showKeyInput&&(
-        <div style={{background:"#1a1f35",borderBottom:`1px solid ${C.border}`,padding:"12px 20px",maxWidth:860,margin:"0 auto",width:"100%",boxSizing:"border-box"}}>
-          <div style={{fontSize:13,fontWeight:700,color:C.gold,marginBottom:10}}>🔑 Configuration API</div>
-          <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
-            {[["claude","🤖 Claude (Anthropic)"],["mistral","🔥 Mistral AI"]].map(([p,l])=>(
-              <button key={p} onClick={()=>setApiProvider(p)} style={{...S.tog,...(apiProvider===p?S.togA:{}),fontSize:12}}>
-                {l}
-              </button>
-            ))}
+        <div style={{background:"#1a1f35",borderBottom:`1px solid ${C.border}`,padding:"14px 20px",maxWidth:860,margin:"0 auto",width:"100%",boxSizing:"border-box"}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.gold,marginBottom:10}}>🔑 Configuration API — Connecter n&apos;importe quel fournisseur</div>
+
+          {/* Provider selector grid */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(110px,1fr))",gap:6,marginBottom:12}}>
+            {Object.entries(PROVIDERS).map(([p,cfg])=>{
+              const hasKey = !cfg.needsKey || !!apiKeys[p];
+              return (
+                <button key={p} onClick={()=>updateProvider(p)}
+                  style={{
+                    display:"flex",flexDirection:"column",alignItems:"center",gap:3,
+                    padding:"8px 6px",borderRadius:8,cursor:"pointer",fontSize:10,fontWeight:700,
+                    border:`1.5px solid ${apiProvider===p?cfg.color:C.border}`,
+                    background:apiProvider===p?`${cfg.color}22`:"transparent",
+                    color:apiProvider===p?cfg.color:C.muted,
+                    position:"relative"
+                  }}>
+                  <span style={{fontSize:16}}>{cfg.icon}</span>
+                  <span style={{textAlign:"center",lineHeight:1.2}}>{cfg.label.split(" (")[0]}</span>
+                  {hasKey&&<span style={{position:"absolute",top:3,right:3,width:6,height:6,borderRadius:"50%",background:C.green}}/>}
+                </button>
+              );
+            })}
           </div>
-          {apiProvider==="mistral"&&(
-            <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-              <input
-                type="password"
-                value={mistralKey}
-                onChange={e=>setMistralKey(e.target.value)}
-                placeholder="Entrez votre clé API Mistral (ex: sk-...)"
-                style={{...S.input,flex:1,minWidth:200,fontSize:13}}
-              />
-              <button onClick={()=>setShowKeyInput(false)} style={{...S.btnP,padding:"9px 16px",fontSize:12}}>
-                ✓ Valider
-              </button>
-            </div>
-          )}
+
+          {/* Claude — no key needed */}
           {apiProvider==="claude"&&(
             <p style={{fontSize:12,color:C.muted,margin:0}}>
-              ✅ Mode Claude (Anthropic) — API utilisée automatiquement. Recommandé pour cet artifact.
+              ✅ Mode Claude (Anthropic) — API utilisée automatiquement, aucune clé requise. Recommandé pour cet artifact.
             </p>
           )}
-          {apiProvider==="mistral"&&mistralKey&&(
-            <div style={{marginTop:6}}>
-              <p style={{fontSize:11,color:C.green,margin:"0 0 4px"}}>✅ Clé Mistral enregistrée — {mistralKey.slice(0,8)}...</p>
-              <p style={{fontSize:11,color:C.warn,margin:0,lineHeight:1.5}}>
-                ⚠️ <strong>Limitation CORS navigateur :</strong> Mistral bloque les appels directs depuis un navigateur. L&apos;app utilise <strong>Claude comme fallback automatique</strong> et le signale dans la réponse. Pour Mistral natif, déployez ce code sur un backend (Node.js/Python).
+
+          {/* OpenRouter — needs model picker + key */}
+          {apiProvider==="openrouter"&&(
+            <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:8}}>
+              <input
+                type="password"
+                value={apiKeys.openrouter||""}
+                onChange={e=>updateApiKey("openrouter", e.target.value)}
+                placeholder="sk-or-v1-... (clé OpenRouter)"
+                style={{...S.input,fontSize:13}}
+              />
+              <div>
+                <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:4}}>Modèle OpenRouter (slug complet)</label>
+                <input
+                  type="text"
+                  value={openrouterModel}
+                  onChange={e=>updateOpenrouterModel(e.target.value)}
+                  placeholder="anthropic/claude-sonnet-4"
+                  style={{...S.input,fontSize:12}}
+                  list="openrouter-models"
+                />
+                <datalist id="openrouter-models">
+                  <option value="anthropic/claude-sonnet-4"/>
+                  <option value="anthropic/claude-3.5-haiku"/>
+                  <option value="openai/gpt-4o"/>
+                  <option value="openai/gpt-4o-mini"/>
+                  <option value="google/gemini-2.0-flash-001"/>
+                  <option value="meta-llama/llama-3.3-70b-instruct"/>
+                  <option value="mistralai/mistral-large"/>
+                  <option value="deepseek/deepseek-chat"/>
+                  <option value="x-ai/grok-2"/>
+                </datalist>
+              </div>
+              {apiKeys.openrouter?(
+                <p style={{fontSize:11,color:C.green,margin:0}}>✅ Clé OpenRouter enregistrée — {apiKeys.openrouter.slice(0,10)}... · Modèle : <strong>{openrouterModel||"anthropic/claude-sonnet-4"}</strong></p>
+              ):(
+                <p style={{fontSize:11,color:C.warn,margin:0}}>⚠️ Entrez votre clé OpenRouter — obtenez-la sur <strong>openrouter.ai/keys</strong></p>
+              )}
+              <p style={{fontSize:10,color:C.dim,margin:0,lineHeight:1.5}}>
+                ℹ️ OpenRouter donne accès à des centaines de modèles (Claude, GPT, Gemini, Llama, DeepSeek...) via une seule clé. Liste complète sur <strong>openrouter.ai/models</strong>.
               </p>
             </div>
           )}
-          {apiProvider==="mistral"&&!mistralKey&&(
-            <div style={{marginTop:6}}>
-              <p style={{fontSize:11,color:C.warn,margin:"0 0 4px"}}>⚠️ Entrez votre clé Mistral ci-dessus — obtenez-la sur <strong>console.mistral.ai</strong></p>
-              <p style={{fontSize:11,color:C.dim,margin:0,lineHeight:1.5}}>ℹ️ En mode Mistral dans cet artifact, Claude sera utilisé en fallback automatique (restriction CORS du navigateur). La clé est utile pour un déploiement backend.</p>
+
+          {/* Custom provider — needs URL + model + key */}
+          {apiProvider==="custom"&&(
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              <input type="text" value={customUrl} onChange={e=>updateCustomUrl(e.target.value)}
+                placeholder="URL endpoint (ex: https://mon-api.com/v1/chat/completions)"
+                style={{...S.input,fontSize:12}}/>
+              <input type="text" value={customModel} onChange={e=>updateCustomModel(e.target.value)}
+                placeholder="Nom du modèle (optionnel)"
+                style={{...S.input,fontSize:12}}/>
+              <input type="password" value={apiKeys.custom||""} onChange={e=>updateApiKey("custom", e.target.value)}
+                placeholder="Clé API (Bearer token)"
+                style={{...S.input,fontSize:12}}/>
+              <p style={{fontSize:10,color:C.dim,margin:0,lineHeight:1.5}}>
+                ℹ️ Compatible avec toute API au format OpenAI-like (POST JSON, header Authorization: Bearer). Réponse attendue : <code>choices[0].message.content</code>.
+              </p>
             </div>
           )}
+
+          {/* Any key-needing provider */}
+          {apiProvider!=="claude"&&apiProvider!=="custom"&&apiProvider!=="openrouter"&&(
+            <div>
+              <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:8}}>
+                <input
+                  type="password"
+                  value={apiKeys[apiProvider]||""}
+                  onChange={e=>updateApiKey(apiProvider, e.target.value)}
+                  placeholder={PROVIDERS[apiProvider].keyPlaceholder}
+                  style={{...S.input,flex:1,minWidth:180,fontSize:13}}
+                />
+                <button onClick={()=>setShowKeyInput(false)} style={{...S.btnP,padding:"9px 16px",fontSize:12}}>
+                  ✓ Valider
+                </button>
+              </div>
+              {apiKeys[apiProvider]?(
+                <div>
+                  <p style={{fontSize:11,color:C.green,margin:"0 0 4px"}}>✅ Clé {PROVIDERS[apiProvider].label} enregistrée — {apiKeys[apiProvider].slice(0,8)}...</p>
+                  <p style={{fontSize:10,color:C.warn,margin:0,lineHeight:1.5}}>
+                    ⚠️ <strong>Limitation CORS navigateur :</strong> certains fournisseurs bloquent les appels directs depuis un navigateur dans cet environnement. En cas d&apos;échec, <strong>Claude prend le relais automatiquement</strong> et le signale dans la réponse.
+                  </p>
+                </div>
+              ):(
+                <div>
+                  <p style={{fontSize:11,color:C.warn,margin:"0 0 4px"}}>⚠️ Entrez votre clé {PROVIDERS[apiProvider].label} ci-dessus{PROVIDERS[apiProvider].keyHelp?` — obtenez-la sur `:""}{PROVIDERS[apiProvider].keyHelp&&<strong>{PROVIDERS[apiProvider].keyHelp}</strong>}</p>
+                  <p style={{fontSize:10,color:C.dim,margin:0,lineHeight:1.5}}>ℹ️ Sans clé, Claude sera utilisé en fallback automatique.</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          <p style={{fontSize:9,color:C.dim,margin:"10px 0 0",borderTop:`1px solid ${C.border}`,paddingTop:8}}>
+            🔒 Toutes les clés sont stockées uniquement dans le stockage local de votre navigateur (localStorage) — jamais envoyées à un serveur tiers autre que le fournisseur choisi.
+          </p>
         </div>
       )}
 
       <main key={screen} className="lopj-page" style={S.main}>
         {screen==="accueil"&&<Accueil stats={stats} historique={historique} onGenerate={generateCas} casLoading={casLoading} totalTerms={ALL_TERMS.length} casSauvegardes={casSauvegardes} setScreen={setScreen}/>}
-        {screen==="config"&&<Config source={source} setSource={setSource} niveau={niveau} setNiveau={setNiveau} themeCP={themeCP} setThemeCP={setThemeCP} themeCPP={themeCPP} setThemeCPP={setThemeCPP} onGenerate={generateCas} casLoading={casLoading}/>}
-        {screen==="cas"&&cas&&<CasScreen cas={cas} reponses={reponses} setReponses={setReponses} correction={correction} correctionLoading={correctionLoading} casLoading={casLoading} onCorrection={getCorrection} onNewCas={generateCas} showCorrection={showCorrection} correctionMode={correctionMode} onSave={sauvegarderCas} onExport={exporterPDF} onVoice={lireCorrection} voiceActive={voiceActive} onFiche={genererFiche} ficheIA={ficheIA} ficheLoading={ficheLoading} showFiche={showFiche} setShowFiche={setShowFiche} dialogHistory={dialogHistory} dialogInput={dialogInput} setDialogInput={setDialogInput} onDialog={envoyerDialogue} dialogLoading={dialogLoading} showDialog={showDialog} setShowDialog={setShowDialog} setArticleModal={setArticleModal} favoris={favoris} onToggleFavori={toggleFavori}/>}
+        {screen==="config"&&<Config source={source} setSource={setSource} niveau={niveau} setNiveau={setNiveau} themeCP={themeCP} setThemeCP={setThemeCP} themeCPP={themeCPP} setThemeCPP={setThemeCPP} onGenerate={generateCas} casLoading={casLoading} voiceSettings={voiceSettings} updateVoiceSettings={updateVoiceSettings} voiceList={voiceList} voiceSupported={voiceSupported} onTestVoice={()=>lireTexte("Bonjour, ceci est un test de la voix sélectionnée pour L'OPJ.", "test")} voiceActive={voiceActive} voiceWhich={voiceWhich} onVoiceStop={arreterVoix}/>}
+        {screen==="cas"&&cas&&<CasScreen cas={cas} reponses={reponses} setReponses={setReponses} correction={correction} correctionLoading={correctionLoading} casLoading={casLoading} onCorrection={getCorrection} onNewCas={generateCas} showCorrection={showCorrection} correctionMode={correctionMode} onSave={sauvegarderCas} onExport={exporterPDF} onVoiceFaits={lireFaits} onVoiceQuestions={lireQuestions} onVoiceReponses={()=>lireReponses(reponses)} onVoiceCorrection={lireCorrection} onVoiceStop={arreterVoix} voiceActive={voiceActive} voiceWhich={voiceWhich} voiceError={voiceError} voiceSupported={voiceSupported} onFiche={genererFiche} ficheIA={ficheIA} ficheLoading={ficheLoading} showFiche={showFiche} setShowFiche={setShowFiche} dialogHistory={dialogHistory} dialogInput={dialogInput} setDialogInput={setDialogInput} onDialog={envoyerDialogue} dialogLoading={dialogLoading} showDialog={showDialog} setShowDialog={setShowDialog} setArticleModal={setArticleModal} favoris={favoris} onToggleFavori={toggleFavori}/>}
         {screen==="stats"&&<Stats stats={stats} historique={historique} heatmapData={heatmapData()} casSauvegardes={casSauvegardes} favoris={favoris} onCharger={chargerSauvegarde} onSupprimer={supprimerSauvegarde} onToggleFavori={toggleFavori} showSauvegardes={showSauvegardes} setShowSauvegardes={setShowSauvegardes}/>}
         {screen==="procedure"&&<Procedure procedureType={procedureType} setProcedureType={setProcedureType}/>}
         {screen==="lexique"&&<Lexique query={lexiqueQuery} setQuery={setLexiqueQuery} result={lexiqueResult} localResult={lexiqueLocalResult} loading={lexiqueLoading} onSearch={searchLexique} allTerms={ALL_TERMS}/>}
       </main>
       <footer style={{textAlign:"center",padding:"8px 10px",borderTop:`1px solid ${C.border}`,display:"flex",flexDirection:"column",gap:2,alignItems:"center"}}>
-        <span style={{fontSize:9,color:C.dim}}>L&apos;OPJ · {ALL_TERMS.length} termes · IA {apiProvider==="mistral"?"Mistral":"Claude"}</span>
+        <span style={{fontSize:9,color:C.dim}}>L&apos;OPJ · {ALL_TERMS.length} termes · IA {PROVIDERS[apiProvider].label}</span>
         <span className="lopj-zenker" style={{fontSize:11,fontWeight:700,color:C.gold,letterSpacing:.4}}>Par Georges Zenker</span>
       </footer>
 
@@ -1277,7 +1637,9 @@ function Accueil({stats,historique,onGenerate,casLoading,totalTerms,casSauvegard
 }
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
-function Config({source,setSource,niveau,setNiveau,themeCP,setThemeCP,themeCPP,setThemeCPP,onGenerate,casLoading}){
+function Config({source,setSource,niveau,setNiveau,themeCP,setThemeCP,themeCPP,setThemeCPP,onGenerate,casLoading,voiceSettings,updateVoiceSettings,voiceList,voiceSupported,onTestVoice,voiceActive,voiceWhich,onVoiceStop}){
+  const frVoices = (voiceList||[]).filter(v=>v.lang?.startsWith("fr"));
+  const otherVoices = (voiceList||[]).filter(v=>!v.lang?.startsWith("fr"));
   return <div style={S.pad}>
     <h2 style={S.pageTitle}>⚙️ Paramètres</h2>
     <div style={{display:"flex",flexDirection:"column",gap:18}}>
@@ -1293,6 +1655,62 @@ function Config({source,setSource,niveau,setNiveau,themeCP,setThemeCP,themeCPP,s
       {(source==="Code de Procédure Pénale"||source==="Les deux")&&<Block label="🔍 Thème Code de Procédure Pénale">
         <select value={themeCPP} onChange={e=>setThemeCPP(e.target.value)} style={S.sel}>{CPP_THEMES.map(t=><option key={t}>{t}</option>)}</select>
       </Block>}
+
+      {/* ── Réglages voix ── */}
+      <Block label="🔊 Lecture vocale">
+        {voiceSupported===false&&(
+          <p style={{fontSize:12,color:C.warn,margin:0,lineHeight:1.6}}>
+            ⚠️ La synthèse vocale n&apos;a pas pu être initialisée dans cet environnement (aucune voix détectée). Si vous êtes dans l&apos;artifact intégré de Claude.ai, essayez d&apos;ouvrir l&apos;app en plein écran ou dans un nouvel onglet via le bouton ⤢.
+          </p>
+        )}
+        {voiceSupported!==false&&(
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            <div>
+              <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:4}}>Voix ({(voiceList||[]).length} disponible{(voiceList||[]).length>1?"s":""})</label>
+              <select value={voiceSettings.voiceURI} onChange={e=>updateVoiceSettings({voiceURI:e.target.value})} style={S.sel}>
+                <option value="">— Auto (français par défaut) —</option>
+                {frVoices.length>0&&<optgroup label="🇫🇷 Voix françaises">
+                  {frVoices.map(v=><option key={v.voiceURI} value={v.voiceURI}>{v.name} ({v.lang})</option>)}
+                </optgroup>}
+                {otherVoices.length>0&&<optgroup label="🌍 Autres langues">
+                  {otherVoices.map(v=><option key={v.voiceURI} value={v.voiceURI}>{v.name} ({v.lang})</option>)}
+                </optgroup>}
+              </select>
+            </div>
+
+            <div>
+              <label style={{fontSize:11,color:C.muted,display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                <span>Vitesse</span><span style={{color:C.gold,fontWeight:700}}>{voiceSettings.rate.toFixed(2)}x</span>
+              </label>
+              <input type="range" min="0.5" max="2" step="0.05" value={voiceSettings.rate}
+                onChange={e=>updateVoiceSettings({rate:parseFloat(e.target.value)})}
+                style={{width:"100%",accentColor:C.gold}}/>
+            </div>
+
+            <div>
+              <label style={{fontSize:11,color:C.muted,display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                <span>Tonalité</span><span style={{color:C.gold,fontWeight:700}}>{voiceSettings.pitch.toFixed(2)}</span>
+              </label>
+              <input type="range" min="0" max="2" step="0.05" value={voiceSettings.pitch}
+                onChange={e=>updateVoiceSettings({pitch:parseFloat(e.target.value)})}
+                style={{width:"100%",accentColor:C.gold}}/>
+            </div>
+
+            <div>
+              <label style={{fontSize:11,color:C.muted,display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                <span>Volume</span><span style={{color:C.gold,fontWeight:700}}>{Math.round(voiceSettings.volume*100)}%</span>
+              </label>
+              <input type="range" min="0" max="1" step="0.05" value={voiceSettings.volume}
+                onChange={e=>updateVoiceSettings({volume:parseFloat(e.target.value)})}
+                style={{width:"100%",accentColor:C.gold}}/>
+            </div>
+
+            <button onClick={voiceActive&&voiceWhich==="test"?onVoiceStop:onTestVoice} style={{...S.btnS,width:"100%"}}>
+              {voiceActive&&voiceWhich==="test"?"⏹ Arrêter le test":"🔊 Tester cette voix"}
+            </button>
+          </div>
+        )}
+      </Block>
     </div>
     <div style={{background:`${C.gold}12`,border:`1px solid ${C.gold}35`,borderRadius:10,padding:14,margin:"18px 0"}}>
       <div style={{fontWeight:700,color:C.gold,marginBottom:6,fontSize:12}}>📋 Configuration actuelle</div>
@@ -1305,7 +1723,7 @@ function Config({source,setSource,niveau,setNiveau,themeCP,setThemeCP,themeCPP,s
 }
 
 // ─── CAS SCREEN ───────────────────────────────────────────────────────────────
-function CasScreen({cas,reponses,setReponses,correction,correctionLoading,casLoading,onCorrection,onNewCas,showCorrection,correctionMode,onSave,onExport,onVoice,voiceActive,onFiche,ficheIA,ficheLoading,showFiche,setShowFiche,dialogHistory,dialogInput,setDialogInput,onDialog,dialogLoading,showDialog,setShowDialog,setArticleModal,favoris,onToggleFavori}){
+function CasScreen({cas,reponses,setReponses,correction,correctionLoading,casLoading,onCorrection,onNewCas,showCorrection,correctionMode,onSave,onExport,onVoiceFaits,onVoiceQuestions,onVoiceReponses,onVoiceCorrection,onVoiceStop,voiceActive,voiceWhich,voiceError,voiceSupported,onFiche,ficheIA,ficheLoading,showFiche,setShowFiche,dialogHistory,dialogInput,setDialogInput,onDialog,dialogLoading,showDialog,setShowDialog,setArticleModal,favoris,onToggleFavori}){
   const questions = cas.questions||[];
   const hasAnyResponse = Object.values(reponses).some(r=>r&&r.trim());
   const answeredCount = Object.values(reponses).filter(r=>r&&r.trim()).length;
@@ -1322,13 +1740,40 @@ function CasScreen({cas,reponses,setReponses,correction,correctionLoading,casLoa
     </div>
 
     {/* Toolbar */}
-    <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+    <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
       <button onClick={onSave} style={{...S.btnS,padding:"6px 10px",fontSize:11}}>💾 Sauvegarder</button>
       <button onClick={onExport} style={{...S.btnS,padding:"6px 10px",fontSize:11}}>📄 Exporter .txt</button>
-      {correction&&<button onClick={onVoice} style={{...S.btnS,padding:"6px 10px",fontSize:11,color:voiceActive?C.green:C.text}}>{voiceActive?"⏹ Stop":"🔊 Lire"}</button>}
       {correction&&<button onClick={onFiche} style={{...S.btnS,padding:"6px 10px",fontSize:11}}>📋 Fiche révision</button>}
       {correction&&<button onClick={()=>setShowDialog(v=>!v)} style={{...S.btnS,padding:"6px 10px",fontSize:11,color:showDialog?C.gold:C.text}}>🗣️ Dialoguer</button>}
     </div>
+
+    {/* Lecture vocale — boutons contextuels */}
+    {voiceSupported!==false&&<div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
+      {cas?.faits&&<button onClick={onVoiceFaits} style={{...S.btnS,padding:"6px 10px",fontSize:11,color:voiceWhich==="faits"?C.green:C.text,borderColor:voiceWhich==="faits"?C.green:C.border}}>
+        {voiceWhich==="faits"?"⏹ Stop":"🔊"} Lire les faits
+      </button>}
+      {cas?.questions?.length>0&&<button onClick={onVoiceQuestions} style={{...S.btnS,padding:"6px 10px",fontSize:11,color:voiceWhich==="questions"?C.green:C.text,borderColor:voiceWhich==="questions"?C.green:C.border}}>
+        {voiceWhich==="questions"?"⏹ Stop":"🔊"} Lire les questions
+      </button>}
+      {cas?.questions?.length>0&&<button onClick={onVoiceReponses} style={{...S.btnS,padding:"6px 10px",fontSize:11,color:voiceWhich==="reponses"?C.green:C.text,borderColor:voiceWhich==="reponses"?C.green:C.border}}>
+        {voiceWhich==="reponses"?"⏹ Stop":"🔊"} Lire mes réponses
+      </button>}
+      {correction&&<button onClick={onVoiceCorrection} style={{...S.btnS,padding:"6px 10px",fontSize:11,color:voiceWhich==="correction"?C.green:C.text,borderColor:voiceWhich==="correction"?C.green:C.border}}>
+        {voiceWhich==="correction"?"⏹ Stop":"🔊"} Lire la correction
+      </button>}
+    </div>}
+
+    {voiceSupported===false&&<div style={{fontSize:11,color:C.dim,background:`${C.dim}10`,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 10px",marginBottom:8}}>
+      🔇 Synthèse vocale indisponible dans cet environnement.
+    </div>}
+
+    {voiceError&&<div style={{fontSize:11,color:C.warn,background:`${C.warn}15`,border:`1px solid ${C.warn}35`,borderRadius:8,padding:"6px 10px",marginBottom:8,lineHeight:1.5}}>⚠️ {voiceError}</div>}
+
+    {voiceActive&&<div style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:C.green,marginBottom:8}}>
+      <span className="lopj-zenker" style={{display:"inline-block",width:8,height:8,borderRadius:"50%",background:C.green}}/>
+      🔊 Lecture en cours{voiceWhich?` — ${voiceWhich}`:""}...
+      <button onClick={onVoiceStop} style={{marginLeft:6,background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:11,textDecoration:"underline"}}>Arrêter</button>
+    </div>}
 
     {/* Fiche de révision */}
     {showFiche&&<div style={{...S.card,border:`1px solid ${C.gold}50`,marginBottom:10}}>
@@ -1697,3 +2142,4 @@ function Procedure({procedureType,setProcedureType}){
     <p style={{fontSize:11,color:C.dim,textAlign:"center"}}>Cliquez sur une étape pour développer les détails · Références CPP camerounais</p>
   </div>;
 }
+
