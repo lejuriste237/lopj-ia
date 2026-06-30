@@ -822,6 +822,36 @@ async function callAI(messages, system, max_tokens=1200, apiConfig={}) {
   }
 }
 
+// Teste réellement la connexion à un provider (sans fallback silencieux) — utilisé par le bouton "Tester la connexion"
+async function testProviderConnection(provider, apiKeys={}, customUrl="", customModel="", openrouterModel="") {
+  const cfg = PROVIDERS[provider] || PROVIDERS.claude;
+  const key = apiKeys[provider] || "";
+  if (cfg.needsKey && !key) return { ok:false, message:"Aucune clé renseignée." };
+  const pingMsgs = [{role:"user", content:"Réponds uniquement par le mot: ok"}];
+  const pingSys = "Tu es un test de connexion. Réponds uniquement 'ok'.";
+  try {
+    switch(provider) {
+      case "claude":     await callClaudeProxy(pingMsgs, pingSys, 10); break;
+      case "mistral":    await callMistral(pingMsgs, pingSys, 10, key); break;
+      case "openai":     await callOpenAI(pingMsgs, pingSys, 10, key); break;
+      case "groq":       await callGroq(pingMsgs, pingSys, 10, key); break;
+      case "gemini":     await callGemini(pingMsgs, pingSys, 10, key); break;
+      case "cohere":     await callCohere(pingMsgs, pingSys, 10, key); break;
+      case "xai":        await callXAI(pingMsgs, pingSys, 10, key); break;
+      case "openrouter": await callOpenRouter(pingMsgs, pingSys, 10, key, openrouterModel || PROVIDERS.openrouter.defaultModel); break;
+      case "custom":     await callCustom(pingMsgs, pingSys, 10, key, customUrl, customModel); break;
+      default:           await callClaudeProxy(pingMsgs, pingSys, 10);
+    }
+    return { ok:true, message:"Connexion réussie." };
+  } catch(e) {
+    const isCorsOrNetwork = /Failed to fetch|NetworkError|CORS|fetch/.test(e.message||"");
+    const message = isCorsOrNetwork
+      ? "Échec : restriction CORS du navigateur dans cet environnement (nécessite un backend pour fonctionner réellement)."
+      : (e.message || "Échec de connexion inconnu.");
+    return { ok:false, message };
+  }
+}
+
 // ─── MAIN APP ────────────────────────────────────────────────────────────────
 export default function LOPJ() {
   const [screen, setScreen] = useState("accueil");
@@ -849,6 +879,13 @@ export default function LOPJ() {
   const [customModel, setCustomModel] = useState(()=>{try{return localStorage.getItem("lopj_custommodel")||""}catch{return ""}});
   const [openrouterModel, setOpenrouterModel] = useState(()=>{try{return localStorage.getItem("lopj_openroutermodel")||"anthropic/claude-sonnet-4"}catch{return "anthropic/claude-sonnet-4"}});
   const [showKeyInput, setShowKeyInput] = useState(false);
+  const [testStatus, setTestStatus] = useState({}); // {provider: {state:'testing'|'ok'|'error', message}}
+
+  const testConnection = useCallback(async (provider) => {
+    setTestStatus(prev=>({...prev, [provider]:{state:"testing", message:""}}));
+    const res = await testProviderConnection(provider, apiKeys, customUrl, customModel, openrouterModel);
+    setTestStatus(prev=>({...prev, [provider]:{state: res.ok ? "ok" : "error", message: res.message}}));
+  }, [apiKeys, customUrl, customModel, openrouterModel]);
 
   const updateProvider = useCallback((p)=>{
     setApiProvider(p);
@@ -1114,13 +1151,11 @@ export default function LOPJ() {
     setDialogHistory(newHist); setDialogLoading(true);
     const context = `Tu es L'OPJ, expert en droit camerounais. Le cas pratique est : "${cas.titre}". Faits : ${cas.faits}. Correction fournie : ${correction||"Pas encore corrigé."}. Réponds en français de façon pédagogique, précise et concise (max 200 mots).`;
     try{
-      const resp = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:400,system:context,messages:newHist.map(m=>({role:m.role,content:m.content}))})});
-      const data = await resp.json();
-      const reply = data.content?.[0]?.text||"Désolé, pas de réponse.";
-      setDialogHistory([...newHist,{role:"assistant",content:reply}]);
-    }catch(e){ setDialogHistory([...newHist,{role:"assistant",content:"Erreur de connexion."}]); }
+      const reply = await callAI(newHist, context, 400, apiConfig);
+      setDialogHistory([...newHist,{role:"assistant",content:reply||"Désolé, pas de réponse."}]);
+    }catch(e){ setDialogHistory([...newHist,{role:"assistant",content:"Erreur de connexion : "+(e.message||"inconnue")}]); }
     setDialogLoading(false);
-  }, [dialogInput, dialogHistory, cas, correction]);
+  }, [dialogInput, dialogHistory, cas, correction, apiConfig]);
 
   // ── Fiche de révision ──
   const genererFiche = useCallback(async () => {
@@ -1128,12 +1163,11 @@ export default function LOPJ() {
     setFicheLoading(true); setShowFiche(true); setFicheIA(null);
     const sys = `Tu es L'OPJ. Génère une fiche de révision synthétique (max 300 mots) sur l'infraction "${cas.infraction_principale||cas.theme}" du droit camerounais. Structure : 1) Définition légale 2) Éléments constitutifs 3) Peine(s) principale(s) 4) Circonstances aggravantes/atténuantes 5) Procédure applicable. Renvoie du texte brut structuré avec des emojis de section.`;
     try{
-      const resp = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:600,messages:[{role:"user",content:`Fiche révision: ${cas.infraction_principale||cas.theme} — droit camerounais`}],system:sys})});
-      const data = await resp.json();
-      setFicheIA(data.content?.[0]?.text||"Erreur.");
-    }catch{ setFicheIA("Erreur de génération."); }
+      const txt = await callAI([{role:"user",content:`Fiche révision: ${cas.infraction_principale||cas.theme} — droit camerounais`}], sys, 600, apiConfig);
+      setFicheIA(txt||"Erreur.");
+    }catch(e){ setFicheIA("Erreur de génération : "+(e.message||"inconnue")); }
     setFicheLoading(false);
-  }, [cas]);
+  }, [cas, apiConfig]);
 
   // ── Schéma de procédure ──
   const [showProcedure, setShowProcedure] = useState(false);
@@ -1466,9 +1500,17 @@ Termine avec 📊 BILAN GLOBAL: score moyen /20 et 💡 À RETENIR: points méth
 
           {/* Claude — no key needed */}
           {apiProvider==="claude"&&(
-            <p style={{fontSize:12,color:C.muted,margin:0}}>
-              ✅ Mode Claude (Anthropic) — API utilisée automatiquement, aucune clé requise. Recommandé pour cet artifact.
-            </p>
+            <div>
+              <p style={{fontSize:12,color:C.muted,margin:"0 0 8px"}}>
+                ✅ Mode Claude (Anthropic) — API utilisée automatiquement, aucune clé requise. Recommandé pour cet artifact.
+              </p>
+              <button onClick={()=>testConnection("claude")} disabled={testStatus.claude?.state==="testing"}
+                style={{...S.btnS,fontSize:12,padding:"7px 14px"}}>
+                {testStatus.claude?.state==="testing"?"⏳ Test en cours...":"🔍 Tester la connexion"}
+              </button>
+              {testStatus.claude?.state==="ok"&&<p style={{fontSize:11,color:C.green,margin:"6px 0 0"}}>✅ {testStatus.claude.message}</p>}
+              {testStatus.claude?.state==="error"&&<p style={{fontSize:11,color:C.red,margin:"6px 0 0"}}>❌ {testStatus.claude.message}</p>}
+            </div>
           )}
 
           {/* OpenRouter — needs model picker + key */}
@@ -1508,6 +1550,12 @@ Termine avec 📊 BILAN GLOBAL: score moyen /20 et 💡 À RETENIR: points méth
               ):(
                 <p style={{fontSize:11,color:C.warn,margin:0}}>⚠️ Entrez votre clé OpenRouter — obtenez-la sur <strong>openrouter.ai/keys</strong></p>
               )}
+              <button onClick={()=>testConnection("openrouter")} disabled={testStatus.openrouter?.state==="testing"||!apiKeys.openrouter}
+                style={{...S.btnS,fontSize:12,padding:"7px 14px",alignSelf:"flex-start",opacity:!apiKeys.openrouter?0.5:1}}>
+                {testStatus.openrouter?.state==="testing"?"⏳ Test en cours...":"🔍 Tester la connexion"}
+              </button>
+              {testStatus.openrouter?.state==="ok"&&<p style={{fontSize:11,color:C.green,margin:0}}>✅ {testStatus.openrouter.message}</p>}
+              {testStatus.openrouter?.state==="error"&&<p style={{fontSize:11,color:C.red,margin:0}}>❌ {testStatus.openrouter.message}</p>}
               <p style={{fontSize:10,color:C.dim,margin:0,lineHeight:1.5}}>
                 ℹ️ OpenRouter donne accès à des centaines de modèles (Claude, GPT, Gemini, Llama, DeepSeek...) via une seule clé. Liste complète sur <strong>openrouter.ai/models</strong>.
               </p>
@@ -1526,6 +1574,12 @@ Termine avec 📊 BILAN GLOBAL: score moyen /20 et 💡 À RETENIR: points méth
               <input type="password" value={apiKeys.custom||""} onChange={e=>updateApiKey("custom", e.target.value)}
                 placeholder="Clé API (Bearer token)"
                 style={{...S.input,fontSize:12}}/>
+              <button onClick={()=>testConnection("custom")} disabled={testStatus.custom?.state==="testing"||!customUrl}
+                style={{...S.btnS,fontSize:12,padding:"7px 14px",alignSelf:"flex-start",opacity:!customUrl?0.5:1}}>
+                {testStatus.custom?.state==="testing"?"⏳ Test en cours...":"🔍 Tester la connexion"}
+              </button>
+              {testStatus.custom?.state==="ok"&&<p style={{fontSize:11,color:C.green,margin:0}}>✅ {testStatus.custom.message}</p>}
+              {testStatus.custom?.state==="error"&&<p style={{fontSize:11,color:C.red,margin:0}}>❌ {testStatus.custom.message}</p>}
               <p style={{fontSize:10,color:C.dim,margin:0,lineHeight:1.5}}>
                 ℹ️ Compatible avec toute API au format OpenAI-like (POST JSON, header Authorization: Bearer). Réponse attendue : <code>choices[0].message.content</code>.
               </p>
@@ -1543,10 +1597,13 @@ Termine avec 📊 BILAN GLOBAL: score moyen /20 et 💡 À RETENIR: points méth
                   placeholder={PROVIDERS[apiProvider].keyPlaceholder}
                   style={{...S.input,flex:1,minWidth:180,fontSize:13}}
                 />
-                <button onClick={()=>setShowKeyInput(false)} style={{...S.btnP,padding:"9px 16px",fontSize:12}}>
-                  ✓ Valider
+                <button onClick={()=>testConnection(apiProvider)} disabled={testStatus[apiProvider]?.state==="testing"||!apiKeys[apiProvider]}
+                  style={{...S.btnP,padding:"9px 16px",fontSize:12,opacity:!apiKeys[apiProvider]?0.5:1}}>
+                  {testStatus[apiProvider]?.state==="testing"?"⏳ Test...":"🔍 Tester la connexion"}
                 </button>
               </div>
+              {testStatus[apiProvider]?.state==="ok"&&<p style={{fontSize:11,color:C.green,margin:"0 0 6px"}}>✅ {testStatus[apiProvider].message}</p>}
+              {testStatus[apiProvider]?.state==="error"&&<p style={{fontSize:11,color:C.red,margin:"0 0 6px"}}>❌ {testStatus[apiProvider].message}</p>}
               {apiKeys[apiProvider]?(
                 <div>
                   <p style={{fontSize:11,color:C.green,margin:"0 0 4px"}}>✅ Clé {PROVIDERS[apiProvider].label} enregistrée — {apiKeys[apiProvider].slice(0,8)}...</p>
@@ -2142,4 +2199,3 @@ function Procedure({procedureType,setProcedureType}){
     <p style={{fontSize:11,color:C.dim,textAlign:"center"}}>Cliquez sur une étape pour développer les détails · Références CPP camerounais</p>
   </div>;
 }
-
